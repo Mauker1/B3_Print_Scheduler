@@ -70,7 +70,7 @@ def test_the_page_is_served_at_the_root(served: tuple[str, ScheduleService]) -> 
 def test_a_cache_busting_query_string_does_not_change_the_route(
     served: tuple[str, ScheduleService],
 ) -> None:
-    assert get(served[0], "/jobs?t=1758369600000") == {"jobs": []}
+    assert get(served[0], "/jobs?t=1758369600000")["jobs"] == []
 
 
 def test_health_answers_without_needing_moonraker(served: tuple[str, ScheduleService]) -> None:

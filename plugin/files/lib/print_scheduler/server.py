@@ -28,11 +28,10 @@ from print_scheduler.service import (
     JobRequest,
     ScheduleRejectedError,
     ScheduleService,
-    payload_for,
 )
 
 SERVICE_NAME = "print-scheduler"
-SERVICE_VERSION = "0.1.2"
+SERVICE_VERSION = "0.1.3"
 
 JSON_CONTENT_TYPE = "application/json"
 # A schedule entry is a filename and a few flags. Anything larger is not one.
@@ -158,10 +157,7 @@ def serve_health(handler: SchedulerRequestHandler) -> None:
 
 
 def serve_jobs(handler: SchedulerRequestHandler) -> None:
-    schedule = handler.schedule()
-    handler.respond_json(
-        HTTPStatus.OK, {"jobs": payload_for(schedule.jobs(), schedule.verdicts())}
-    )
+    handler.respond_json(HTTPStatus.OK, handler.schedule().schedule_payload())
 
 
 def serve_files(handler: SchedulerRequestHandler) -> None:

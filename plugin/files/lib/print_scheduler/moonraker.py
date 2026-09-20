@@ -98,6 +98,8 @@ def print_records_from_history(entries: Any) -> tuple[PrintRecord, ...]:
             start_time=float(entry.get("start_time") or 0.0),
             status=str(entry.get("status", "")),
             end_time=float(entry.get("end_time") or 0.0),
+            total_duration=float(entry.get("total_duration") or 0.0),
+            print_duration=float(entry.get("print_duration") or 0.0),
         )
         for entry in entries
     )

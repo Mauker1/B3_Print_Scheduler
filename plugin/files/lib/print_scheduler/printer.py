@@ -72,6 +72,11 @@ class PrintRecord:
     status: str
     # Zero while a print is still running.
     end_time: float = 0.0
+    # Wall clock from start to end, and the part of it that was actually extruding. The
+    # difference is the printer's own start routine, which is minutes on this machine and is
+    # missing from every slicer estimate.
+    total_duration: float = 0.0
+    print_duration: float = 0.0
 
 
 @dataclass(frozen=True)

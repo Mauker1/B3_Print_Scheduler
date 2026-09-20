@@ -17,6 +17,7 @@ from print_scheduler import (
     JobRequest,
     JobState,
     LoadedFilament,
+    PrintRecord,
     ScheduleRejectedError,
     ScheduleService,
     ScheduleStore,
@@ -36,6 +37,20 @@ from printer_stand_in import (
 SIX_IN_THE_MORNING = 1_758_348_000.0
 LAST_NIGHT = SIX_IN_THE_MORNING - 8 * 3600
 BENCHY_SECONDS = 2920.0
+# Measured on the printer: 638.67 total against 40.03 printing.
+SETUP_SECONDS = 598.64
+
+
+def a_finished_print() -> PrintRecord:
+    return PrintRecord(
+        job_id="0000BE",
+        filename=BENCHY,
+        start_time=LAST_NIGHT,
+        status="completed",
+        end_time=LAST_NIGHT + 638.67,
+        total_duration=638.67,
+        print_duration=40.03,
+    )
 
 
 def a_service(tmp_path: Path, printer: StandInPrinter | None = None) -> ScheduleService:
@@ -203,3 +218,50 @@ def test_the_payload_separates_what_we_did_from_what_the_printer_says(tmp_path: 
     assert entry["state"] == "scheduled"
     assert entry["printer_says"] is None
     assert entry["projected_finish"] == SIX_IN_THE_MORNING + BENCHY_SECONDS
+
+
+def test_the_projection_adds_the_printers_own_setup_time(tmp_path: Path) -> None:
+    # The defect this version exists for: the page quoted 26 seconds for a print that took
+    # ten minutes and twenty six seconds to be done with.
+    job = a_service(tmp_path).add(a_request(), LAST_NIGHT)
+    assert projected_finish(job, SETUP_SECONDS) == (
+        SIX_IN_THE_MORNING + SETUP_SECONDS + BENCHY_SECONDS
+    )
+
+
+def test_a_printer_with_nothing_measured_projects_without_it(tmp_path: Path) -> None:
+    job = a_service(tmp_path).add(a_request(), LAST_NIGHT)
+    assert projected_finish(job, None) == SIX_IN_THE_MORNING + BENCHY_SECONDS
+
+
+def test_the_overlap_warning_uses_the_same_setup_time(tmp_path: Path) -> None:
+    # Two jobs far enough apart to look safe on the slicer estimate alone, and not once the
+    # printer's own ten minutes are counted. Without this the warning arrives after the fact.
+    service = a_service(tmp_path)
+    first = service.add(a_request(), LAST_NIGHT)
+    second = service.add(
+        a_request(start_at=SIX_IN_THE_MORNING + BENCHY_SECONDS + 60), LAST_NIGHT
+    )
+    assert overlapping_job_ids(service.jobs()) == {}
+    assert overlapping_job_ids(service.jobs(), SETUP_SECONDS) == {second.job_id: first.job_id}
+
+
+def test_the_page_is_told_the_setup_time_and_gets_it_off_one_reading(tmp_path: Path) -> None:
+    printer = StandInPrinter(remembers=(a_finished_print(),))
+    service = a_service(tmp_path, printer)
+    service.add(a_request(), LAST_NIGHT)
+    payload = service.schedule_payload()
+    assert payload["setup_seconds"] is not None
+    assert round(payload["setup_seconds"], 2) == SETUP_SECONDS
+    assert payload["jobs"][0]["projected_finish"] == (
+        SIX_IN_THE_MORNING + payload["setup_seconds"] + BENCHY_SECONDS
+    )
+
+
+def test_a_printer_that_cannot_be_reached_still_renders_the_schedule(tmp_path: Path) -> None:
+    printer = StandInPrinter(history_raises=OSError("connection refused"))
+    service = a_service(tmp_path, printer)
+    service.add(a_request(), LAST_NIGHT)
+    payload = service.schedule_payload()
+    assert payload["setup_seconds"] is None
+    assert payload["jobs"][0]["projected_finish"] == SIX_IN_THE_MORNING + BENCHY_SECONDS

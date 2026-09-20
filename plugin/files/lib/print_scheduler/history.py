@@ -11,11 +11,15 @@ would otherwise be recorded as a success and found out about in the morning.
 **What became of the print?** That one is not ours. The printer tracks it, better than we could,
 and we look it up when someone asks rather than keeping a copy that can drift. A job carries the
 printer's id for the print and nothing else about it.
+
+**How long does this printer take before it prints anything?** That one is the printer's to
+answer and nobody else's, which is why it is measured here rather than written down.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from statistics import median
 
 from print_scheduler.jobs import Job
 from print_scheduler.printer import PrintRecord
@@ -24,6 +28,15 @@ from print_scheduler.printer import PrintRecord
 # an accept that took its time, could put the record marginally before. A few seconds either way
 # identifies our own print without ever reaching back to an earlier run of the same file.
 START_MATCH_SLACK_SECONDS = 15.0
+
+# The printer's own word for a print that ran to the end. Only these can be measured: a print
+# cancelled during the start routine records a print_duration of exactly zero, so its whole
+# duration would read as setup and drag the figure down.
+FINISHED = "completed"
+
+# Enough to ride out one unusual print without going so far back that a changed start routine
+# takes days to show up.
+PRINTS_WORTH_MEASURING = 10
 
 
 def find_our_print(job: Job, records: Sequence[PrintRecord]) -> PrintRecord | None:
@@ -56,6 +69,26 @@ def last_print_ended_at(records: Sequence[PrintRecord]) -> float | None:
     """
     ended = [record.end_time for record in records if record.end_time > 0]
     return max(ended) if ended else None
+
+
+def start_routine_seconds(records: Sequence[PrintRecord]) -> float | None:
+    """How long this printer spends between accepting a print and finishing it, minus printing.
+
+    Heating, levelling, purging and parking: everything the slicer's estimate leaves out. On the
+    machine this was written against it is about ten minutes, which made a projected finish for a
+    short print wrong by a factor of twenty three. So the page cannot quote a slicer estimate as
+    a finish time, and it cannot carry a number of mine either. It has to ask the printer.
+
+    The median, not the mean, over the most recent finished prints: one print somebody paused for
+    an hour should not move it, and it will not.
+    """
+    measured = [
+        record.total_duration - record.print_duration
+        for record in records
+        if record.status == FINISHED and record.print_duration > 0 and record.total_duration > 0
+    ]
+    usable = [gap for gap in measured if gap > 0][:PRINTS_WORTH_MEASURING]
+    return median(usable) if usable else None
 
 
 def verdict_for(job: Job, records: Sequence[PrintRecord]) -> PrintRecord | None:

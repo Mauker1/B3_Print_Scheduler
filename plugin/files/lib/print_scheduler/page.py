@@ -113,7 +113,7 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 var CLOCK_SKEW_TOLERANCE_SECONDS = 120;
 var REFRESH_MILLISECONDS = 10000;
 
-var state = { jobs: [], printer: null, summary: null, editing: null };
+var state = { jobs: [], printer: null, summary: null, editing: null, setupSeconds: null };
 
 function element(tag, className, text) {
   var made = document.createElement(tag);
@@ -323,8 +323,15 @@ function renderJob(job) {
   card.appendChild(element("div", "quiet", jobHeadline(job)));
 
   if (job.state === "scheduled" && job.projected_finish) {
+    var printing = howLong(job.estimated_seconds);
+    var setup = howLong(state.setupSeconds);
+    if (setup && printing) {
+      card.appendChild(element("div", "facts",
+        "about " + setup + " of setup, then " + printing + " of printing"));
+    }
     card.appendChild(element("div", "facts",
-      "should finish around " + whenLocal(job.projected_finish)));
+      "should finish around " + whenLocal(job.projected_finish) +
+      (setup ? "" : ", not counting the printer's setup")));
   }
   if (job.overlaps_with) {
     card.appendChild(element("p", "warn",
@@ -463,6 +470,7 @@ function cancelJob(job) {
 function loadJobs() {
   return api("./jobs").then(function (payload) {
     state.jobs = payload.jobs || [];
+    state.setupSeconds = payload.setup_seconds || null;
     renderJobs();
   }).catch(function (problem) {
     replaceChildren(document.getElementById("pending"), [element("p", "stop", problem.message)]);

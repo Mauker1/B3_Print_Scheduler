@@ -19,9 +19,11 @@ clear, and it is scheduled. A job that has not fired yet can be edited or cancel
 can be used as the starting point for another.
 
 Picking a file shows what it will use: which toolheads, which material and colour in each, how
-long the slicer thinks it will take, and what it will heat the bed to. If an earlier job is
-projected to still be printing when this one is due, the page says so while you are still looking
-at it, rather than letting it become a cancellation at six in the morning.
+long the slicer thinks the printing takes, and what it will heat the bed to. A scheduled job then
+shows the whole thing, setup time included, because the two are not the same and only one of them
+is in the file. If an earlier job is projected to still be printing when this one is due, the page
+says so while you are still looking at it, rather than letting it become a cancellation at six in
+the morning.
 
 The page needs JavaScript. It is a printer's web interface, and so is everything else on the
 machine.
@@ -41,6 +43,28 @@ starts.
 
 The choice is made again at the moment the job fires, never carried over from when it was
 scheduled. You can set a job at ten at night and change a spool at midnight.
+
+## How long it will take
+
+A slicer's estimate is how long the printing takes. It is not how long the job takes, because
+before the first line of plastic your printer heats a bed, heats a nozzle, probes a mesh, picks up
+a toolhead and purges. On the machine this was written against that is about ten minutes, every
+time, which made the old projection for a short print wrong by a factor of twenty three.
+
+So the page adds it, and the number is your printer's, not anybody else's. It is the median of
+what the last few finished prints spent not printing, read out of the printer's own job history,
+and it is re-read every time the page refreshes. A job says what it is made of:
+
+> about 10m of setup, then 26s of printing
+> should finish around 6:10:24
+
+A printer that has not finished a print yet has nothing to measure. It gets the slicer estimate
+alone, labelled *not counting the printer's setup*, rather than a number from somebody else's
+machine.
+
+The overlap warning uses the same figure, which is the half of this that matters at six in the
+morning: two jobs an hour apart can still collide once the setup time is counted, and a warning
+that only appears afterwards is not a warning.
 
 ## The rules it applies before starting anything
 

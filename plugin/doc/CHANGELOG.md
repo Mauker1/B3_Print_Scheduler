@@ -5,6 +5,27 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.3 (in development)
+
+- **Fixed: a projected finish that ignored the printer's own setup time.** The page was quoting
+  the slicer's estimate as a finish time. The slicer measures printing; it knows nothing about
+  heating a bed, probing a mesh, picking up a toolhead or purging, and this printer spends about
+  ten minutes on that before the first extrusion. A 26 second print was projected to be done in
+  26 seconds and took ten and a half minutes.
+- The setup time is now measured from the printer's own job history, as the median of what the
+  last few finished prints spent not printing, and re-read whenever the page refreshes. It is
+  never a number written into the source, because it belongs to a machine rather than to this
+  plugin. A scheduled job says what it is made of: *about 10m of setup, then 26s of printing*.
+- A printer with no finished print to measure is told apart from one that takes no time. It gets
+  the slicer estimate labelled *not counting the printer's setup* rather than a borrowed figure.
+- **The overlap warning inherits the same correction**, which is the half of this that mattered:
+  two jobs an hour apart can collide once setup is counted, and that warning used to arrive only
+  after the second job had been cancelled as busy.
+- Prints cancelled during the start routine are left out of the measurement. They record a
+  printing time of exactly zero, so counting them would have read a 32 second cancellation as a
+  32 second setup and dragged the figure to a third of the truth.
+- The schedule endpoint reads the printer's history once per request instead of twice.
+
 ## 0.1.2 (in development)
 
 - **Fixed: one cancelled print stopped every job scheduled after it.** The printer reports a

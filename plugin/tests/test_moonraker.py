@@ -10,7 +10,11 @@ printer's current value while a sent one overwrites it.
 
 from __future__ import annotations
 
-from print_scheduler import build_start_script, snapshot_from_status
+from print_scheduler import (
+    build_start_script,
+    print_records_from_history,
+    snapshot_from_status,
+)
 
 BENCHY = "3DBenchy_ASA_HF_48m40s.gcode"
 
@@ -103,3 +107,24 @@ def test_a_query_missing_an_object_does_not_raise() -> None:
     snapshot = snapshot_from_status({})
     assert snapshot.reachable
     assert snapshot.klipper_state == ""
+
+
+def test_the_history_carries_the_durations_a_projection_needs() -> None:
+    records = print_records_from_history([{
+        "job_id": "0000BE",
+        "filename": BENCHY,
+        "status": "completed",
+        "start_time": 1789925226.453134,
+        "end_time": 1789925865.193251,
+        "total_duration": 638.6742317210301,
+        "print_duration": 40.034649686014745,
+    }])
+    assert records[0].total_duration == 638.6742317210301
+    assert records[0].print_duration == 40.034649686014745
+
+
+def test_a_history_entry_missing_its_durations_reads_as_zero_rather_than_crashing() -> None:
+    # Moonraker is the printer's, not ours, and a field we assume is a field that can be absent.
+    records = print_records_from_history([{"job_id": "1", "filename": BENCHY}])
+    assert records[0].total_duration == 0.0
+    assert records[0].print_duration == 0.0

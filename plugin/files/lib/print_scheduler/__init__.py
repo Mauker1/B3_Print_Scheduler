@@ -15,7 +15,12 @@ from print_scheduler.gcode_files import (
     summarise,
     tools_used,
 )
-from print_scheduler.history import find_our_print, last_print_ended_at, verdict_for
+from print_scheduler.history import (
+    find_our_print,
+    last_print_ended_at,
+    start_routine_seconds,
+    verdict_for,
+)
 from print_scheduler.jobs import (
     Attempt,
     Job,
@@ -139,6 +144,7 @@ __all__ = [
     "render_schedule_page",
     "run_tick",
     "snapshot_from_status",
+    "start_routine_seconds",
     "split_slicer_list",
     "summarise",
     "tick_once",

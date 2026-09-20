@@ -56,8 +56,14 @@ except ModuleNotFoundError:  # pragma: no cover  the message is the point
         "    .venv/bin/playwright install chromium\n"
         "    .venv/bin/python scripts/check-in-browser.py"
     )
-from print_scheduler import ScheduleService, ScheduleStore, build_server  # noqa: E402
+from print_scheduler import (  # noqa: E402
+    PrintRecord,
+    ScheduleService,
+    ScheduleStore,
+    build_server,
+)
 from printer_stand_in import (  # noqa: E402
+    BENCHY,
     FOUR_TOOL_METADATA,
     WHITE_PLA_METADATA,
     StandInPrinter,
@@ -66,6 +72,18 @@ from printer_stand_in import (  # noqa: E402
 A_TIME_WELL_IN_THE_FUTURE = "2030-06-01T06:00"
 MULTI_TOOL_FILE = "04_XYZ_Cali_PLA_14m25s.gcode"
 PATIENCE_MILLISECONDS = 5000
+
+# The durations are the printer's own, off job 0000BE, so the page has a real setup time to
+# quote rather than a round number that would hide an off by a factor mistake.
+A_PRINT_THAT_FINISHED = PrintRecord(
+    job_id="0000BE",
+    filename=BENCHY,
+    start_time=1789925226.45,
+    status="completed",
+    end_time=1789925865.19,
+    total_duration=638.67,
+    print_duration=40.03,
+)
 
 failures: list[str] = []
 complaints: list[str] = []
@@ -131,6 +149,12 @@ def check_scheduling(page: Page) -> None:
     check("the job is listed", "3DBenchy" in pending, True)
     check("it says when it starts", "Starts" in pending, True)
     check("it projects a finish", "should finish around" in pending, True)
+    check("it names the setup time", "of setup, then" in pending, True)
+    check(
+        "and does not warn about a setup time it knows",
+        "not counting the printer's setup" in pending,
+        False,
+    )
     check("the time is cleared for the next one", page.input_value("#start-at"), "")
     check("the promise is not reused", page.is_checked("#bed-clear"), False)
     check("and scheduling is refused again", page.is_disabled("#save"), True)
@@ -203,7 +227,9 @@ def report() -> int:
 
 
 def main() -> int:
-    printer = StandInPrinter(describes=dict(WHITE_PLA_METADATA))
+    printer = StandInPrinter(
+        describes=dict(WHITE_PLA_METADATA), remembers=(A_PRINT_THAT_FINISHED,)
+    )
     with tempfile.TemporaryDirectory() as scratch:
         base_url, server = serve(Path(scratch), printer)
         with sync_playwright() as playwright:

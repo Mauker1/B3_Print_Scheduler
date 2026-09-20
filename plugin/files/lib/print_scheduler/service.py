@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from print_scheduler.gcode_files import FileSummary, summarise
-from print_scheduler.history import verdict_for
+from print_scheduler.history import start_routine_seconds, verdict_for
 from print_scheduler.jobs import (
     Job,
     JobState,
@@ -77,18 +77,25 @@ def read_tolerance_seconds(user_vars_path: Path) -> float:
     return max(minutes, 0.0) * SECONDS_PER_MINUTE
 
 
-def projected_finish(job: Job) -> float | None:
-    """When the slicer thinks this job will be done, or None if it did not say."""
+def projected_finish(job: Job, setup_seconds: float | None = None) -> float | None:
+    """When this job should be done, or None if the file did not say how long it takes.
+
+    Two parts, and they have different owners. The slicer says how long the printing takes. The
+    printer says how long it spends getting ready, and only history knows that, so a printer
+    that has not finished anything yet gets a projection without it rather than a guess.
+    """
     if job.estimated_seconds <= 0:
         return None
-    return job.start_at + job.estimated_seconds
+    return job.start_at + (setup_seconds or 0.0) + job.estimated_seconds
 
 
-def overlapping_job_ids(jobs: Sequence[Job]) -> dict[str, str]:
+def overlapping_job_ids(jobs: Sequence[Job], setup_seconds: float | None = None) -> dict[str, str]:
     """Pending jobs that would start before an earlier pending job is projected to finish.
 
     Shown as a warning while you are still looking at the screen, rather than left to become a
-    silent cancellation at six in the morning.
+    silent cancellation at six in the morning. It takes the setup time for the same reason the
+    projection does: without it this was optimistic by ten minutes a job, which is the difference
+    between a warning and a warning that arrives too late to act on.
     """
     pending = sorted(
         (job for job in jobs if job.state is JobState.SCHEDULED), key=lambda job: job.start_at
@@ -96,7 +103,7 @@ def overlapping_job_ids(jobs: Sequence[Job]) -> dict[str, str]:
     clashes: dict[str, str] = {}
     for position, job in enumerate(pending):
         for earlier in pending[:position]:
-            finish = projected_finish(earlier)
+            finish = projected_finish(earlier, setup_seconds)
             if finish is not None and job.start_at < finish:
                 clashes[job.job_id] = earlier.job_id
     return clashes
@@ -216,7 +223,22 @@ class ScheduleService:
 
     def verdicts(self) -> dict[str, PrintRecord]:
         """What the printer says became of each started job. Its claim, read when asked."""
+        return self._verdicts_in(self.recent_prints())
+
+    def schedule_payload(self) -> dict[str, Any]:
+        """Everything the page needs about the schedule, off one reading of the history.
+
+        The verdicts and the setup time both come out of the same listing, so asking for it
+        twice would be two round trips to say one thing.
+        """
         records = self.recent_prints()
+        setup_seconds = start_routine_seconds(records)
+        return {
+            "jobs": payload_for(self.jobs(), self._verdicts_in(records), setup_seconds),
+            "setup_seconds": setup_seconds,
+        }
+
+    def _verdicts_in(self, records: Sequence[PrintRecord]) -> dict[str, PrintRecord]:
         found = ((job, verdict_for(job, records)) for job in self.jobs())
         return {job.job_id: record for job, record in found if record is not None}
 
@@ -261,13 +283,17 @@ class ScheduleService:
         return summary
 
 
-def payload_for(jobs: Sequence[Job], verdicts: dict[str, PrintRecord]) -> list[dict[str, Any]]:
+def payload_for(
+    jobs: Sequence[Job],
+    verdicts: dict[str, PrintRecord],
+    setup_seconds: float | None = None,
+) -> list[dict[str, Any]]:
     """Render the schedule for the page: what we did, and separately what the printer says."""
-    clashes = overlapping_job_ids(jobs)
+    clashes = overlapping_job_ids(jobs, setup_seconds)
     rendered = []
     for job in jobs:
         entry = job.to_dict()
-        entry["projected_finish"] = projected_finish(job)
+        entry["projected_finish"] = projected_finish(job, setup_seconds)
         entry["overlaps_with"] = clashes.get(job.job_id)
         verdict = verdicts.get(job.job_id)
         entry["printer_says"] = None if verdict is None else verdict.status

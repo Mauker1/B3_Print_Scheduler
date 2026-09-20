@@ -16,6 +16,7 @@ from print_scheduler import (
     PrintRecord,
     find_our_print,
     last_print_ended_at,
+    start_routine_seconds,
     verdict_for,
 )
 
@@ -119,3 +120,58 @@ def test_the_status_is_whatever_the_printer_called_it() -> None:
     found = verdict_for(job, [a_record(status="klippy_shutdown")])
     assert found is not None
     assert found.status == "klippy_shutdown"
+
+
+# The two real measurements from the printer, to the second decimal, so a refactor that quietly
+# changes what is being subtracted from what fails here rather than on the hardware.
+FIRST_RUN = {"total_duration": 653.71, "print_duration": 40.07}
+SECOND_RUN = {"total_duration": 638.67, "print_duration": 40.03}
+
+
+def test_the_setup_time_is_what_the_printer_spent_not_printing() -> None:
+    measured = start_routine_seconds([a_record(**SECOND_RUN)])
+    assert measured is not None
+    assert round(measured, 2) == 598.64
+
+
+def test_two_runs_of_the_same_file_agree_to_within_a_few_seconds() -> None:
+    # Not a property of the code, a property of the printer, and the reason a median over a
+    # handful of prints is enough. If this printer ever stops being repeatable, the design that
+    # rests on it should be revisited rather than quietly kept.
+    measured = start_routine_seconds([a_record(**SECOND_RUN), a_record(**FIRST_RUN)])
+    assert measured is not None
+    assert 590 < measured < 620
+
+
+def test_a_print_cancelled_during_the_start_routine_is_not_a_measurement() -> None:
+    # This is the whole reason for filtering. A cancellation 32 seconds in records a
+    # print_duration of exactly zero, so counting it would read 32 seconds as the setup time
+    # and drag the figure to a third of the truth.
+    cancelled = a_record(status="cancelled", total_duration=32.36, print_duration=0.0)
+    measured = start_routine_seconds([cancelled, a_record(**SECOND_RUN)])
+    assert measured is not None
+    assert round(measured, 2) == 598.64
+
+
+def test_one_print_somebody_paused_for_an_hour_does_not_move_it() -> None:
+    paused = a_record(total_duration=4238.67, print_duration=40.03)
+    records = [a_record(**SECOND_RUN), paused, a_record(**FIRST_RUN)]
+    measured = start_routine_seconds(records)
+    assert measured is not None
+    assert measured < 700
+
+
+def test_a_printer_that_has_finished_nothing_gives_no_number() -> None:
+    # And the page then says so, rather than being handed a figure from somebody's laptop.
+    assert start_routine_seconds([]) is None
+    assert start_routine_seconds([a_record(status="cancelled", print_duration=0.0)]) is None
+
+
+def test_history_older_than_the_last_ten_finished_prints_is_left_out() -> None:
+    # A start routine that changes, because a mesh was added or a toolhead was swapped, should
+    # show up in days rather than never.
+    recent = [a_record(**SECOND_RUN) for _ in range(10)]
+    ancient = [a_record(total_duration=4000.0, print_duration=40.0) for _ in range(40)]
+    measured = start_routine_seconds([*recent, *ancient])
+    assert measured is not None
+    assert round(measured, 2) == 598.64

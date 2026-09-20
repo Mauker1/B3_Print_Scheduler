@@ -114,8 +114,19 @@ templates and places the files, wires the symlinks, and restarts the named servi
 
 ## Hard constraints
 
-- **Never run git.** The maintainer commits. Leave the tree green and hand over exact commands if a git
-  action is needed. When a change bumps a plugin's `manifest.json` version, the commit title starts
+- **Never run git, with one exception: `git status`.** The maintainer commits. Leave the tree green
+  and hand over exact commands if a git action is needed. `git status` is allowed, and only that,
+  so an assistant can see for itself whether work has been committed instead of spending a round
+  asking. Nothing else: not `add`, not `commit`, not `checkout`, not `stash`, not `diff`, not
+  `log`, not `check-ignore`.
+  On this machine the repo is reached over a mount that refuses unlinks, so `git status` can leave
+  an empty `.git/index.lock` behind, and a stale one blocks the maintainer's next commit with
+  `Unable to create index.lock: File exists`. Clear it in the same breath, every time, and clear
+  it the way everything else is cleared here, by moving it rather than deleting it:
+  `mkdir -p _trash/git-locks && mv -f .git/index.lock .git/modules/*/index.lock _trash/git-locks/`
+  (both paths, and neither existing is fine). The mount refuses `rm` outright, so this is not
+  merely the polite form, it is the one that works.
+  When a change bumps a plugin's `manifest.json` version, the commit title starts
   with that version: `0.1.2: drop the redundant pre-commands`. The maintainer reads history by
   version, and a title that does not carry one makes him go and look.
 - **Never delete a file outright. Move it to `_trash/` instead.** `_trash/<name>` at the repo root,
