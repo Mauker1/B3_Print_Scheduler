@@ -22,19 +22,27 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
 
+from print_scheduler.history import find_our_print
 from print_scheduler.jobs import Attempt, Job, JobState, Refusal, reason_filename_cannot_start
 from print_scheduler.printer import (
     KLIPPER_READY,
     KLIPPER_STARTING_STATES,
     PRINT_STATE_ERROR,
     RUNNING_PRINT_STATES,
+    STATES_MEANING_OUR_PRINT_RAN,
     UNCLEARED_BED_STATES,
     Printer,
     PrinterSnapshot,
+    PrintRecord,
     StartRefusedError,
 )
 
 SECONDS_PER_MINUTE = 60
+
+# How long a start is given to show up before we conclude it did not take. The printer
+# reports `printing` from the moment it begins parsing the file, so this is generous; it is
+# wide enough that a slow accept or a tick landing awkwardly cannot produce a false alarm.
+START_CONFIRMATION_SECONDS = 60.0
 
 
 class Action(str, Enum):
@@ -213,32 +221,86 @@ def is_due(job: Job, now: float) -> bool:
 def run_tick(
     jobs: Sequence[Job], printer: Printer, now: float, tolerance_seconds: float
 ) -> list[Job]:
-    """Settle every job that has come due, and return the whole schedule as it now stands."""
+    """Settle what has come due, confirm what was started, and return the whole schedule."""
     due = [job for job in jobs if is_due(job, now)]
-    if not due:
+    awaiting = [job for job in jobs if job.state is JobState.STARTING]
+    if not due and not awaiting:
         return list(jobs)
 
-    snapshot, filenames = _look_at_the_printer(printer)
+    snapshot = printer.snapshot()
+    settled = {job.job_id: _confirm(job, printer, snapshot, now) for job in awaiting}
+    settled.update(_settle_due(due, printer, snapshot, now, tolerance_seconds))
+    return [settled.get(job.job_id, job) for job in jobs]
+
+
+def _settle_due(
+    due: Sequence[Job],
+    printer: Printer,
+    snapshot: PrinterSnapshot,
+    now: float,
+    tolerance_seconds: float,
+) -> dict[str, Job]:
+    if not due:
+        return {}
+    snapshot, filenames = _with_the_file_listing(printer, snapshot)
     settled: dict[str, Job] = {}
     already_started = False
     for job in due:
         moment = Moment(job, snapshot, filenames, now, tolerance_seconds)
         decision = ANOTHER_JOB_STARTED if already_started else decide(moment)
         updated = _carry_out(decision, job, printer, now)
-        already_started = already_started or updated.state is JobState.STARTED
+        already_started = already_started or updated.state is JobState.STARTING
         settled[job.job_id] = updated
-    return [settled.get(job.job_id, job) for job in jobs]
+    return settled
 
 
-def _look_at_the_printer(printer: Printer) -> tuple[PrinterSnapshot, frozenset[str]]:
-    snapshot = printer.snapshot()
+def _confirm(job: Job, printer: Printer, snapshot: PrinterSnapshot, now: float) -> Job:
+    """Decide whether a start we made actually took effect."""
+    ours = find_our_print(job, _recent_prints(printer))
+    if ours is not None:
+        return _confirmed(job, now, ours.job_id, f"the printer recorded it as job {ours.job_id}")
+    if _the_printer_is_running_our_file(job, snapshot):
+        return _confirmed(job, now, "", "the printer is running it, with no history entry yet")
+    waited_for = now - (job.decided_at or now)
+    if waited_for <= START_CONFIRMATION_SECONDS:
+        return _waited(job, now, Decision(Action.WAIT, Refusal.START_DID_NOT_TAKE,
+                                          "the start has not shown up on the printer yet"))
+    return _cancelled(job, now, Decision(
+        Action.CANCEL,
+        Refusal.START_DID_NOT_TAKE,
+        f"the printer accepted the start and then did not run it within "
+        f"{_in_minutes(START_CONFIRMATION_SECONDS) or 1} minute",
+    ))
+
+
+def _the_printer_is_running_our_file(job: Job, snapshot: PrinterSnapshot) -> bool:
+    return (
+        snapshot.reachable
+        and snapshot.print_state in STATES_MEANING_OUR_PRINT_RAN
+        and snapshot.printing_filename == job.filename
+    )
+
+
+def _recent_prints(printer: Printer) -> tuple[PrintRecord, ...]:
+    try:
+        return printer.recent_prints()
+    except OSError:
+        # No history is not evidence that the start failed, so the caller falls through to
+        # the live state and then to the confirmation window.
+        return ()
+
+
+def _with_the_file_listing(
+    printer: Printer, snapshot: PrinterSnapshot
+) -> tuple[PrinterSnapshot, frozenset[str]]:
     if not snapshot.reachable:
         return snapshot, frozenset()
     try:
         return snapshot, printer.gcode_filenames()
     except OSError as unreachable:
-        # The state query answered and the file listing did not. Treat the printer as unreachable
-        # rather than as a printer whose files have all vanished, which would cancel every job.
+        # The state query answered and the file listing did not. Treat the printer as
+        # unreachable rather than as one whose files have all vanished, which would cancel
+        # every pending job at once.
         return PrinterSnapshot(reachable=False, klipper_message=str(unreachable)), frozenset()
 
 
@@ -272,11 +334,22 @@ def _started(job: Job, printer: Printer, now: float) -> Job:
         return _cancelled(
             job, now, Decision(Action.CANCEL, Refusal.START_REFUSED, str(refused))
         )
+    # STARTING, not STARTED: the printer said yes, and whether it meant it is the next
+    # tick's question.
+    return replace(
+        job,
+        state=JobState.STARTING,
+        decided_at=now,
+        attempts=job.attempts + (Attempt(now, "the printer accepted the start"),),
+    )
+
+
+def _confirmed(job: Job, now: float, printer_job_id: str, detail: str) -> Job:
     return replace(
         job,
         state=JobState.STARTED,
-        decided_at=now,
-        attempts=job.attempts + (Attempt(now, "started"),),
+        printer_job_id=printer_job_id,
+        attempts=job.attempts + (Attempt(now, detail),),
     )
 
 

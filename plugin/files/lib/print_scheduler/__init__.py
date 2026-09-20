@@ -8,6 +8,7 @@ later without a single test changing.
 """
 
 from print_scheduler.cli import build_argument_parser, main
+from print_scheduler.history import find_our_print, verdict_for
 from print_scheduler.jobs import (
     Attempt,
     Job,
@@ -20,6 +21,7 @@ from print_scheduler.jobs import (
 from print_scheduler.moonraker import (
     MoonrakerPrinter,
     build_start_script,
+    print_records_from_history,
     snapshot_from_status,
 )
 from print_scheduler.page import render_schedule_page
@@ -27,9 +29,11 @@ from print_scheduler.printer import (
     KLIPPER_READY,
     PRINT_STATE_ERROR,
     RUNNING_PRINT_STATES,
+    STATES_MEANING_OUR_PRINT_RAN,
     UNCLEARED_BED_STATES,
     Printer,
     PrinterSnapshot,
+    PrintRecord,
     StartRefusedError,
 )
 from print_scheduler.runner import (
@@ -55,6 +59,7 @@ __all__ = [
     "KLIPPER_READY",
     "PRINT_STATE_ERROR",
     "RUNNING_PRINT_STATES",
+    "STATES_MEANING_OUR_PRINT_RAN",
     "SERVICE_NAME",
     "SERVICE_VERSION",
     "UNCLEARED_BED_STATES",
@@ -65,6 +70,7 @@ __all__ = [
     "JobState",
     "Moment",
     "MoonrakerPrinter",
+    "PrintRecord",
     "Printer",
     "PrinterSnapshot",
     "Refusal",
@@ -76,12 +82,15 @@ __all__ = [
     "build_start_script",
     "cancel_by_hand",
     "decide",
+    "find_our_print",
     "is_due",
     "job_from_dict",
     "main",
     "new_job_id",
+    "print_records_from_history",
     "reason_filename_cannot_start",
     "render_schedule_page",
     "run_tick",
     "snapshot_from_status",
+    "verdict_for",
 ]

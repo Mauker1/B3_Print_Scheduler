@@ -30,9 +30,30 @@ UNCLEARED_BED_STATES = frozenset({"complete", "cancelled"})
 
 PRINT_STATE_ERROR = "error"
 
+# print_stats states that mean the file we asked for is running now or just finished. A 26
+# second print can be over before the next tick, so `complete` is confirmation that the start
+# took, not evidence that it did not. This is only ever consulted for a job we started moments
+# ago, and only after the printer reported standby at the time we started it, so a stale
+# `complete` from an older print cannot be mistaken for ours.
+STATES_MEANING_OUR_PRINT_RAN = frozenset({"printing", "paused", "complete"})
+
 
 class StartRefusedError(Exception):
     """The printer refused to start the print. The message is the printer's own."""
+
+
+@dataclass(frozen=True)
+class PrintRecord:
+    """One entry of the printer's own job history.
+
+    `status` is passed through as the printer words it, never translated into a vocabulary of
+    ours. What became of a print is the printer's claim to make.
+    """
+
+    job_id: str
+    filename: str
+    start_time: float
+    status: str
 
 
 @dataclass(frozen=True)
@@ -59,6 +80,10 @@ class Printer(Protocol):
 
     def gcode_filenames(self) -> frozenset[str]:
         """Every gcode file the printer can currently start."""
+        ...
+
+    def recent_prints(self) -> tuple[PrintRecord, ...]:
+        """The printer's own recent job history, newest first."""
         ...
 
     def start_print(

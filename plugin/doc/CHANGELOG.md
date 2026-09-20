@@ -19,6 +19,11 @@ First version. Not released: no tag has been pushed and nothing has been publish
   table that decides whether a job starts. It is not wired to anything yet, so the plugin still
   cannot start a print, and `/jobs` answers with an empty list because there is nothing to list
   rather than because nothing is scheduled.
+- A start is confirmed before it is believed. A job stays in `starting` until the printer is seen
+  to act on it, and a start the printer accepted and then did not run is caught and recorded
+  rather than reported as a success.
+- A started job keeps the printer's own id for the print, so what became of it can be looked up
+  in the printer's job history rather than tracked, guessed at, or copied.
 - On a printer that offers it, a job's bed mesh and timelapse choices are carried by
   `SDCARD_PRINT_FILE_WITH_PARAMETERS`, the same command the printer's own interface uses, so a
   scheduled print behaves like one started by hand. Elsewhere, Moonraker's own print start is used

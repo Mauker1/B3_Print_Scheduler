@@ -24,13 +24,18 @@ from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from print_scheduler.printer import PrinterSnapshot, StartRefusedError
+from print_scheduler.printer import PrinterSnapshot, PrintRecord, StartRefusedError
 
 PARAMETERISED_START_COMMAND = "SDCARD_PRINT_FILE_WITH_PARAMETERS"
 
 READ_TIMEOUT_SECONDS = 10.0
 # Starting resets the loaded file and runs PRINT_PRESTART_CHECK before it answers.
 START_TIMEOUT_SECONDS = 60.0
+
+# Enough history to confirm a start moments after making it, and to answer what became of a
+# print scheduled within the last few days. Moonraker offers a single-job endpoint too; the
+# list is one code path for both questions and has not needed the other.
+HISTORY_LIMIT = 50
 
 
 def build_start_script(
@@ -47,6 +52,19 @@ def build_start_script(
     if record_timelapse is not None:
         parameters.append(f"TIME_LAPSE_CAMERA={int(record_timelapse)}")
     return f"{PARAMETERISED_START_COMMAND} " + " ".join(parameters)
+
+
+def print_records_from_history(entries: Any) -> tuple[PrintRecord, ...]:
+    """Read history entries out of a Moonraker history listing."""
+    return tuple(
+        PrintRecord(
+            job_id=str(entry.get("job_id", "")),
+            filename=str(entry.get("filename", "")),
+            start_time=float(entry.get("start_time") or 0.0),
+            status=str(entry.get("status", "")),
+        )
+        for entry in entries
+    )
 
 
 def snapshot_from_status(status: dict[str, Any]) -> PrinterSnapshot:
@@ -100,6 +118,11 @@ class MoonrakerPrinter:
         return frozenset(str(entry["path"]) for entry in self._get_result(
             "/server/files/list?root=gcodes"
         ))
+
+    def recent_prints(self) -> tuple[PrintRecord, ...]:
+        """The printer's own recent job history, newest first."""
+        result = self._get_result(f"/server/history/list?limit={HISTORY_LIMIT}")
+        return print_records_from_history(result["jobs"])
 
     def supports_print_preferences(self) -> bool:
         """Whether this printer offers the parameterised start command. Asked once, then kept."""

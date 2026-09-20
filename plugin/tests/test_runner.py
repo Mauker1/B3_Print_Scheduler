@@ -19,6 +19,7 @@ from print_scheduler import (
     Job,
     JobState,
     PrinterSnapshot,
+    PrintRecord,
     Refusal,
     StartRefusedError,
     cancel_by_hand,
@@ -48,10 +49,17 @@ class StandInPrinter:
     holds: frozenset[str] = frozenset({BENCHY, CHINESE_NAME})
     refuses_start_with: str | None = None
     listing_raises: OSError | None = None
+    remembers: tuple[PrintRecord, ...] = ()
+    history_raises: OSError | None = None
     started: list[tuple[str, bool | None, bool | None]] = field(default_factory=list)
 
     def snapshot(self) -> PrinterSnapshot:
         return self.reports
+
+    def recent_prints(self) -> tuple[PrintRecord, ...]:
+        if self.history_raises is not None:
+            raise self.history_raises
+        return self.remembers
 
     def gcode_filenames(self) -> frozenset[str]:
         if self.listing_raises is not None:
@@ -89,7 +97,8 @@ def settle(
 def test_an_idle_printer_on_time_starts_the_print() -> None:
     printer = StandInPrinter()
     settled = settle(a_job(level_bed=True, record_timelapse=False), printer)
-    assert settled.state is JobState.STARTED
+    # STARTING, not STARTED. The printer said yes; whether it meant it is the next tick.
+    assert settled.state is JobState.STARTING
     assert printer.started == [(BENCHY, True, False)]
 
 
@@ -104,7 +113,7 @@ def test_a_job_that_is_not_due_yet_is_left_alone() -> None:
 def test_a_chinese_filename_starts_like_any_other() -> None:
     printer = StandInPrinter()
     settled = settle(a_job(filename=CHINESE_NAME), printer)
-    assert settled.state is JobState.STARTED
+    assert settled.state is JobState.STARTING
     assert printer.started == [(CHINESE_NAME, None, None)]
 
 
@@ -215,7 +224,7 @@ def test_retrying_accumulates_attempts_and_then_starts_when_the_printer_comes_ba
 
     recovered = StandInPrinter()
     started = settle(waited_twice, recovered, now=SIX_IN_THE_MORNING + 40)
-    assert started.state is JobState.STARTED
+    assert started.state is JobState.STARTING
     assert len(started.attempts) == 3
 
 
@@ -265,17 +274,17 @@ def test_at_most_one_job_starts_in_a_tick() -> None:
     first = a_job(job_id="first")
     second = a_job(job_id="second")
     settled = run_tick([first, second], printer, SIX_IN_THE_MORNING, FIVE_MINUTES)
-    assert [job.state for job in settled] == [JobState.STARTED, JobState.CANCELLED]
+    assert [job.state for job in settled] == [JobState.STARTING, JobState.CANCELLED]
     assert settled[1].refusal is Refusal.PRINTER_BUSY
     assert len(printer.started) == 1
 
 
 def test_a_settled_job_is_not_touched_again() -> None:
     printer = StandInPrinter()
-    started = settle(a_job(), printer)
-    again = settle(started, printer, now=SIX_IN_THE_MORNING + ONE_MINUTE)
-    assert again == started
-    assert len(printer.started) == 1
+    confirmed = replace(a_job(), state=JobState.STARTED, printer_job_id="0000B9")
+    again = settle(confirmed, printer, now=SIX_IN_THE_MORNING + ONE_MINUTE)
+    assert again == confirmed
+    assert printer.started == []
 
 
 def test_the_tick_returns_the_whole_schedule_including_jobs_it_did_not_touch() -> None:
@@ -287,6 +296,89 @@ def test_the_tick_returns_the_whole_schedule_including_jobs_it_did_not_touch() -
     assert settled[1] == later
 
 
+PRINTING_OURS = replace(IDLE, print_state="printing", printing_filename=BENCHY)
+
+
+def a_starting_job(**overrides: object) -> Job:
+    """A job the printer has accepted but not yet been seen to act on."""
+    return replace(a_job(**overrides), state=JobState.STARTING, decided_at=SIX_IN_THE_MORNING)
+
+
+def a_history_record(**overrides: object) -> PrintRecord:
+    defaults: dict[str, object] = {
+        "job_id": "0000B9",
+        "filename": BENCHY,
+        "start_time": SIX_IN_THE_MORNING + 2,
+        "status": "in_progress",
+    }
+    defaults.update(overrides)
+    return PrintRecord(**defaults)  # type: ignore[arg-type]
+
+
+def test_a_start_is_confirmed_by_the_printers_own_history() -> None:
+    printer = StandInPrinter(reports=PRINTING_OURS, remembers=(a_history_record(),))
+    settled = settle(a_starting_job(), printer, now=SIX_IN_THE_MORNING + 20)
+    assert settled.state is JobState.STARTED
+    assert settled.printer_job_id == "0000B9"
+
+
+def test_a_start_is_confirmed_by_the_live_state_when_the_history_has_not_caught_up() -> None:
+    printer = StandInPrinter(reports=PRINTING_OURS)
+    settled = settle(a_starting_job(), printer, now=SIX_IN_THE_MORNING + 20)
+    assert settled.state is JobState.STARTED
+    # No id to keep, so the page will say the printer has no record rather than invent one.
+    assert settled.printer_job_id == ""
+
+
+def test_a_print_short_enough_to_finish_before_the_next_tick_still_counts_as_started() -> None:
+    # There is a 26 second file on the printer this was written against.
+    finished = replace(IDLE, print_state="complete", printing_filename=BENCHY)
+    printer = StandInPrinter(reports=finished)
+    settled = settle(a_starting_job(), printer, now=SIX_IN_THE_MORNING + 20)
+    assert settled.state is JobState.STARTED
+
+
+def test_an_unavailable_history_falls_back_to_the_live_state() -> None:
+    printer = StandInPrinter(reports=PRINTING_OURS, history_raises=OSError("no history component"))
+    assert settle(a_starting_job(), printer, now=SIX_IN_THE_MORNING + 20).state is JobState.STARTED
+
+
+def test_a_start_with_no_sign_of_it_yet_is_given_the_confirmation_window() -> None:
+    printer = StandInPrinter(reports=IDLE)
+    settled = settle(a_starting_job(), printer, now=SIX_IN_THE_MORNING + 20)
+    assert settled.state is JobState.STARTING
+    assert len(settled.attempts) == 1
+
+
+def test_a_start_the_printer_accepted_and_then_never_ran_is_caught() -> None:
+    # The hole this state exists for: an ok that meant nothing, found in the morning otherwise.
+    printer = StandInPrinter(reports=IDLE)
+    settled = settle(a_starting_job(), printer, now=SIX_IN_THE_MORNING + 90)
+    assert settled.state is JobState.CANCELLED
+    assert settled.refusal is Refusal.START_DID_NOT_TAKE
+
+
+def test_a_print_of_a_different_file_does_not_confirm_our_start() -> None:
+    elsewhere = replace(IDLE, print_state="printing", printing_filename="somebody_elses.gcode")
+    somebody_elses = a_history_record(filename="other.gcode")
+    printer = StandInPrinter(reports=elsewhere, remembers=(somebody_elses,))
+    assert settle(a_starting_job(), printer, now=SIX_IN_THE_MORNING + 90).refusal is (
+        Refusal.START_DID_NOT_TAKE
+    )
+
+
+def test_a_job_due_while_another_is_being_confirmed_cancels_as_busy() -> None:
+    printer = StandInPrinter(reports=PRINTING_OURS, remembers=(a_history_record(),))
+    settled = run_tick(
+        [a_starting_job(job_id="first"), a_job(job_id="second")],
+        printer,
+        SIX_IN_THE_MORNING + 20,
+        FIVE_MINUTES,
+    )
+    assert settled[0].state is JobState.STARTED
+    assert settled[1].refusal is Refusal.PRINTER_BUSY
+
+
 def test_cancelling_by_hand_is_not_a_refusal_by_the_printer() -> None:
     cancelled = cancel_by_hand(a_job(), SIX_IN_THE_MORNING)
     assert cancelled.state is JobState.CANCELLED
@@ -295,4 +387,4 @@ def test_cancelling_by_hand_is_not_a_refusal_by_the_printer() -> None:
 
 def test_every_refusal_reason_is_reachable_from_the_rules_or_by_hand() -> None:
     # A new way to refuse cannot be added without a test and a row in plugin/doc/README.md.
-    assert len(print_scheduler.Refusal) == 10
+    assert len(print_scheduler.Refusal) == 11

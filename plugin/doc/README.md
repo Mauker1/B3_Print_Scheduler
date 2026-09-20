@@ -42,7 +42,8 @@ does not start however healthy the printer looks.
 | The file is no longer on the printer | **Cancelled** |
 | Another scheduled job started in the same tick | **Cancelled** as busy. At most one job starts per tick |
 | The printer refused the start | **Cancelled**, carrying the printer's own refusal verbatim |
-| None of the above | **Started** |
+| The printer accepted the start and then did not run it | **Cancelled**: the start did not take |
+| None of the above | **Started**, once the printer is seen to act on it |
 | You cancelled it | **Cancelled**, recorded as your decision rather than as a refusal |
 
 Three of those deserve saying out loud.
@@ -57,6 +58,26 @@ from last Tuesday.
 **Waiting is only for things that fix themselves.** An unreachable Moonraker and a Klipper still
 booting get the retry budget. A Klipper that has shut down does not, because the tolerance would
 expire and the recorded reason would be "missed" when the truth was an MCU error.
+
+## Started means the printer was seen to act on it
+
+Telling the printer to start and being told "ok" is not the same as the print running. A job
+sits in **starting** until the printer is actually seen to have taken it, either as an entry in
+its own job history or as the file it is running right now. Only then does it become
+**started**. If a minute passes with no sign of it, the job is cancelled and says so, rather
+than sitting there claiming a success nobody would question until morning.
+
+## Did the print work?
+
+That question belongs to the printer, and the page answers it by asking the printer rather than
+by keeping its own opinion. A started job records the printer's own id for the print, and the
+outcome shown beside it, completed or cancelled or whatever the printer calls it, is read from
+the printer's job history when you look. So the row tells you two things with two owners: what
+the scheduler did, and what the printer says became of it.
+
+The scheduler never watches a print to its end. That is fifteen hours of polling to duplicate a
+record the printer already keeps, and it would mean reporting on a power cut the scheduler had
+nothing to do with. If the printer no longer remembers the print, the row says so.
 
 ## Filenames the printer cannot take
 

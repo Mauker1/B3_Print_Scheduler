@@ -25,9 +25,15 @@ UNSTARTABLE_CHARACTERS = {
 
 
 class JobState(str, Enum):
-    """Where a job is. SCHEDULED is the only state it can leave."""
+    """Where a job is.
+
+    STARTING means the printer accepted the start and we have not yet seen it take effect.
+    A command that answers "ok" and then does nothing is the failure this state exists to
+    catch, and it is the one nobody notices until the morning.
+    """
 
     SCHEDULED = "scheduled"
+    STARTING = "starting"
     STARTED = "started"
     CANCELLED = "cancelled"
 
@@ -48,6 +54,7 @@ class Refusal(str, Enum):
     FILE_GONE = "file-gone"
     FILENAME_NOT_STARTABLE = "filename-not-startable"
     START_REFUSED = "start-refused"
+    START_DID_NOT_TAKE = "start-did-not-take"
     CANCELLED_BY_YOU = "cancelled-by-you"
 
 
@@ -81,6 +88,11 @@ class Job:
     refusal: Refusal | None = None
     detail: str = ""
     decided_at: float | None = None
+    # The printer's own id for the print this job started, captured once the printer
+    # confirms it. It is how the page asks the printer what became of the print, and it is
+    # deliberately the only thing we keep about that: the outcome is the printer's claim, so
+    # it is looked up when someone asks rather than copied into our own record.
+    printer_job_id: str = ""
     attempts: tuple[Attempt, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
@@ -98,6 +110,7 @@ class Job:
             "refusal": None if self.refusal is None else self.refusal.value,
             "detail": self.detail,
             "decided_at": self.decided_at,
+            "printer_job_id": self.printer_job_id,
             "attempts": [{"at": attempt.at, "detail": attempt.detail} for attempt in self.attempts],
         }
 
@@ -118,6 +131,7 @@ def job_from_dict(payload: dict[str, Any]) -> Job:
         refusal=None if refusal is None else Refusal(refusal),
         detail=str(payload.get("detail", "")),
         decided_at=payload.get("decided_at"),
+        printer_job_id=str(payload.get("printer_job_id", "")),
         attempts=tuple(
             Attempt(at=float(entry["at"]), detail=str(entry["detail"]))
             for entry in payload.get("attempts", [])
