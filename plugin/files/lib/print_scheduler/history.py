@@ -45,6 +45,19 @@ def find_our_print(job: Job, records: Sequence[PrintRecord]) -> PrintRecord | No
     return min(ours, key=lambda record: record.start_time)
 
 
+def last_print_ended_at(records: Sequence[PrintRecord]) -> float | None:
+    """When the most recent finished print ended, or None if the printer has no record.
+
+    This is what tells an uncleared bed state apart from a latch. `complete` clears when
+    someone acknowledges it on the printer, but `cancelled` does not: it sat there for
+    forty five minutes with nothing on screen to dismiss, and it would have sat there for
+    days. Its name describes what last happened, not what is true now, so the useful
+    question is not what the state says but when it started saying it.
+    """
+    ended = [record.end_time for record in records if record.end_time > 0]
+    return max(ended) if ended else None
+
+
 def verdict_for(job: Job, records: Sequence[PrintRecord]) -> PrintRecord | None:
     """What the printer says became of this job's print, or None if it has no record of it."""
     if not job.printer_job_id:

@@ -70,6 +70,8 @@ class PrintRecord:
     filename: str
     start_time: float
     status: str
+    # Zero while a print is still running.
+    end_time: float = 0.0
 
 
 @dataclass(frozen=True)

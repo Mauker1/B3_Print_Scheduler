@@ -53,22 +53,26 @@ def test_a_printer_with_no_toolhead_map_is_sent_nothing_about_one() -> None:
     assert "EXTRUDER" not in script
 
 
-def test_the_start_programs_the_toolhead_map_the_way_the_printers_interface_does() -> None:
-    # Three commands, matching the sequence captured from the printer's own interface.
-    assert build_start_script(BENCHY, True, False, ((0, 2),)).splitlines() == [
-        "SET_PRINT_EXTRUDER_MAP CONFIG_EXTRUDER=0 MAP_EXTRUDER=2",
-        "SET_PRINT_USED_EXTRUDERS EXTRUDERS=2",
+def test_the_start_names_a_toolhead_for_every_slot_the_file_uses() -> None:
+    assert build_start_script(BENCHY, True, False, ((0, 2),)) == (
         f'SDCARD_PRINT_FILE_WITH_PARAMETERS FILENAME="{BENCHY}" MAP_TABLE="[[0, 2]]" '
-        "BED_LEVEL=1 TIME_LAPSE_CAMERA=0",
-    ]
+        "BED_LEVEL=1 TIME_LAPSE_CAMERA=0"
+    )
 
 
-def test_every_slot_gets_its_own_line_and_its_own_pair() -> None:
+def test_every_slot_gets_its_own_pair() -> None:
     script = build_start_script(BENCHY, None, None, ((0, 2), (1, 0)))
-    assert "SET_PRINT_EXTRUDER_MAP CONFIG_EXTRUDER=0 MAP_EXTRUDER=2" in script
-    assert "SET_PRINT_EXTRUDER_MAP CONFIG_EXTRUDER=1 MAP_EXTRUDER=0" in script
-    assert "SET_PRINT_USED_EXTRUDERS EXTRUDERS=2,0" in script
     assert 'MAP_TABLE="[[0, 2], [1, 0]]"' in script
+
+
+def test_the_start_is_one_command_because_the_alternatives_are_wiped_by_it() -> None:
+    # SET_PRINT_TASK_PARAMETERS, which this command calls with the same parameters, resets both
+    # the toolhead map and the used list unconditionally before applying MAP_TABLE. Sending
+    # SET_PRINT_EXTRUDER_MAP or SET_PRINT_USED_EXTRUDERS first is dead code that reads as live.
+    script = build_start_script(BENCHY, True, True, ((0, 2),))
+    assert len(script.splitlines()) == 1
+    assert "SET_PRINT_EXTRUDER_MAP" not in script
+    assert "SET_PRINT_USED_EXTRUDERS" not in script
 
 
 def test_a_snapshot_is_read_out_of_a_moonraker_objects_query() -> None:

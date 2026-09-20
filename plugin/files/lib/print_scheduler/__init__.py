@@ -15,7 +15,7 @@ from print_scheduler.gcode_files import (
     summarise,
     tools_used,
 )
-from print_scheduler.history import find_our_print, verdict_for
+from print_scheduler.history import find_our_print, last_print_ended_at, verdict_for
 from print_scheduler.jobs import (
     Attempt,
     Job,
@@ -49,6 +49,7 @@ from print_scheduler.runner import (
     Action,
     Decision,
     Moment,
+    PrinterAsSeen,
     cancel_by_hand,
     decide,
     is_due,
@@ -81,6 +82,8 @@ from print_scheduler.tool_mapping import (
 )
 
 __all__ = [
+    "last_print_ended_at",
+    "PrinterAsSeen",
     "GET_ROUTES",
     "KLIPPER_READY",
     "POST_ROUTES",

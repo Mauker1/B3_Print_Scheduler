@@ -49,34 +49,28 @@ def build_start_script(
     record_timelapse: bool | None,
     assignments: tuple[tuple[int, int], ...] = (),
 ) -> str:
-    """Build the start, the way the printer's own interface builds it.
+    """Build the start command.
 
-    Three commands, not one. `SET_PRINT_TASK_PARAMETERS` appears to reset the toolhead map before
-    applying `MAP_TABLE`, which would make the first two redundant, but that is read off one line
-    rather than understood, and the sequence below is the one observed working on the hardware.
-    Simplify it once that reset is understood, not before: the cost of being wrong is a print that
-    runs all night on the wrong toolhead.
+    One command. The printer's own interface also sends `SET_PRINT_EXTRUDER_MAP` and
+    `SET_PRINT_USED_EXTRUDERS` first, and we copied that until it was understood. It is now:
+    `SET_PRINT_TASK_PARAMETERS`, which this command calls with the same parameters, resets both
+    the toolhead map and the used list unconditionally before it applies `MAP_TABLE`. Anything
+    those two set is wiped microseconds later, so sending them would only mislead whoever reads
+    this next.
 
     A preference left as None is omitted, which leaves the printer's current value alone rather
     than silently choosing one on the person's behalf. No assignments means a printer with no
     toolhead map to program, so nothing about it is sent.
     """
-    lines = [
-        f"SET_PRINT_EXTRUDER_MAP CONFIG_EXTRUDER={slot} MAP_EXTRUDER={toolhead}"
-        for slot, toolhead in assignments
-    ]
     parameters = [f'FILENAME="{filename}"']
     if assignments:
-        toolheads = ",".join(str(toolhead) for _, toolhead in assignments)
-        lines.append(f"SET_PRINT_USED_EXTRUDERS EXTRUDERS={toolheads}")
         pairs = ", ".join(f"[{slot}, {toolhead}]" for slot, toolhead in assignments)
         parameters.append(f'MAP_TABLE="[{pairs}]"')
     if level_bed is not None:
         parameters.append(f"BED_LEVEL={int(level_bed)}")
     if record_timelapse is not None:
         parameters.append(f"TIME_LAPSE_CAMERA={int(record_timelapse)}")
-    lines.append(f"{PARAMETERISED_START_COMMAND} " + " ".join(parameters))
-    return "\n".join(lines)
+    return f"{PARAMETERISED_START_COMMAND} " + " ".join(parameters)
 
 
 def loaded_filaments_from_config(config: dict[str, Any]) -> tuple[LoadedFilament, ...]:
@@ -103,6 +97,7 @@ def print_records_from_history(entries: Any) -> tuple[PrintRecord, ...]:
             filename=str(entry.get("filename", "")),
             start_time=float(entry.get("start_time") or 0.0),
             status=str(entry.get("status", "")),
+            end_time=float(entry.get("end_time") or 0.0),
         )
         for entry in entries
     )

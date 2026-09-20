@@ -23,7 +23,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 
 from print_scheduler.gcode_files import tools_used
-from print_scheduler.history import find_our_print
+from print_scheduler.history import find_our_print, last_print_ended_at
 from print_scheduler.jobs import Attempt, Job, JobState, Refusal, reason_filename_cannot_start
 from print_scheduler.printer import (
     KLIPPER_READY,
@@ -66,6 +66,14 @@ class Decision:
 
 
 @dataclass(frozen=True)
+class PrinterAsSeen:
+    """One look at the printer, shared by everything this tick has to settle."""
+
+    snapshot: PrinterSnapshot
+    recent_prints: tuple[PrintRecord, ...] = ()
+
+
+@dataclass(frozen=True)
 class Moment:
     """One job, and everything the rules may look at, as of one instant."""
 
@@ -77,6 +85,8 @@ class Moment:
     # Which toolhead each of the file's slots will run on, worked out now rather than when
     # the job was scheduled, because a spool can be changed overnight.
     tool_plan: ToolPlan = ToolPlan(applicable=False)
+    # When the printer's most recent print ended. None when it keeps no record.
+    last_print_ended_at: float | None = None
 
 
 Rule = Callable[[Moment], Decision | None]
@@ -159,11 +169,34 @@ def _a_print_is_running(moment: Moment) -> Decision | None:
 def _the_bed_was_not_cleared(moment: Moment) -> Decision | None:
     if moment.printer.print_state not in UNCLEARED_BED_STATES:
         return None
-    return Decision(
-        Action.CANCEL,
-        Refusal.BED_NOT_CLEARED,
-        f"the printer still reports the previous print as {moment.printer.print_state}, so the bed "
-        "is presumed to be occupied. Clear it and dismiss the finished print on the screen.",
+    if _the_promise_already_covered_this(moment):
+        return None
+    return Decision(Action.CANCEL, Refusal.BED_NOT_CLEARED, _why_the_bed_is_suspect(moment))
+
+
+def _the_promise_already_covered_this(moment: Moment) -> bool:
+    """Whether the printer was already saying this when the bed was promised clear.
+
+    The promise is made when the job is scheduled, so a state you could see at that moment is
+    one you promised in spite of. Blocking on it anyway means a single cancelled print stops
+    the scheduler forever, because `cancelled` never clears itself. A state that arrived
+    afterwards is a different thing: you could not have known, so it wins.
+    """
+    ended = moment.last_print_ended_at
+    return ended is not None and moment.job.created_at > 0 and ended <= moment.job.created_at
+
+
+def _why_the_bed_is_suspect(moment: Moment) -> str:
+    state = moment.printer.print_state
+    if moment.last_print_ended_at is None or moment.job.created_at <= 0:
+        return (
+            f"the printer reports the previous print as {state} and gives no usable record of "
+            "when it ended, so there is no telling whether that happened after you promised "
+            "the bed would be clear. Dismiss the last print on the printer, then reschedule."
+        )
+    return (
+        f"a print was {state} after you scheduled this, so there may be something on the bed "
+        "that you could not have known about when you promised it would be clear."
     )
 
 
@@ -243,25 +276,26 @@ def run_tick(
     if not due and not awaiting:
         return list(jobs)
 
-    snapshot = printer.snapshot()
-    settled = {job.job_id: _confirm(job, printer, snapshot, now) for job in awaiting}
-    settled.update(_settle_due(due, printer, snapshot, now, tolerance_seconds))
+    seen = PrinterAsSeen(printer.snapshot(), _recent_prints(printer))
+    settled = {job.job_id: _confirm(job, seen, now) for job in awaiting}
+    settled.update(_settle_due(due, printer, seen, now, tolerance_seconds))
     return [settled.get(job.job_id, job) for job in jobs]
 
 
 def _settle_due(
     due: Sequence[Job],
     printer: Printer,
-    snapshot: PrinterSnapshot,
+    seen: PrinterAsSeen,
     now: float,
     tolerance_seconds: float,
 ) -> dict[str, Job]:
     if not due:
         return {}
-    snapshot, filenames = _with_the_file_listing(printer, snapshot)
+    snapshot, filenames = _with_the_file_listing(printer, seen.snapshot)
     settled: dict[str, Job] = {}
     already_started = False
     loaded = _loaded_filaments(printer)
+    ended = last_print_ended_at(seen.recent_prints)
     for job in due:
         moment = Moment(
             job,
@@ -270,6 +304,7 @@ def _settle_due(
             now,
             tolerance_seconds,
             _plan_the_toolheads(printer, job, loaded),
+            ended,
         )
         decision = ANOTHER_JOB_STARTED if already_started else decide(moment)
         updated = _carry_out(decision, moment, printer)
@@ -278,12 +313,12 @@ def _settle_due(
     return settled
 
 
-def _confirm(job: Job, printer: Printer, snapshot: PrinterSnapshot, now: float) -> Job:
+def _confirm(job: Job, seen: PrinterAsSeen, now: float) -> Job:
     """Decide whether a start we made actually took effect."""
-    ours = find_our_print(job, _recent_prints(printer))
+    ours = find_our_print(job, seen.recent_prints)
     if ours is not None:
         return _confirmed(job, now, ours.job_id, f"the printer recorded it as job {ours.job_id}")
-    if _the_printer_is_running_our_file(job, snapshot):
+    if _the_printer_is_running_our_file(job, seen.snapshot):
         return _confirmed(job, now, "", "the printer is running it, with no history entry yet")
     waited_for = now - (job.decided_at or now)
     if waited_for <= START_CONFIRMATION_SECONDS:

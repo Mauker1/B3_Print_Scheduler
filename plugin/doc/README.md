@@ -57,7 +57,7 @@ does not start however healthy the printer looks.
 | Klipper is still starting up | **Retried**, same budget |
 | Klipper is shut down or in error | **Cancelled**, with Klipper's own message. It will not fix itself, and waiting would only replace the real reason with "missed" |
 | A print is running or paused | **Cancelled**, naming the file it was busy with. It does not wait |
-| A finished or cancelled print has not been dismissed | **Cancelled**: the bed is presumed occupied |
+| A print finished or was cancelled after you scheduled this job, and has not been dismissed | **Cancelled**: something may be on the bed that you could not have known about when you promised it would be clear. One that was already showing when you scheduled the job does not block it |
 | The print reports an error | **Cancelled**, with the printer's message |
 | Something other than a print is running | **Retried**: a calibration started by hand is a matter of minutes |
 | The file is no longer on the printer | **Cancelled** |
@@ -114,10 +114,24 @@ assumed.
 
 ## The bed
 
-The scheduler cannot see the bed. It has one proxy and it is honest about being a proxy: a printer
-that reports a finished or cancelled print is treated as having something on it, because clearing
-the bed and dismissing the print on the screen are the same habit. Past that, whoever schedules a
-job is the one promising the bed will be clear, and the page asks you to say so.
+The scheduler cannot see the bed. Whoever schedules a job is the one promising it will be clear,
+and the page asks you to say so. What the scheduler adds on top is narrow, and worth stating
+precisely, because the obvious version of it is wrong.
+
+A printer that reports a finished or cancelled print may well have something on it, because
+clearing the bed and dismissing the print on the screen are the same habit. But that state is a
+latch, not a reading: this printer keeps saying `cancelled` until someone dismisses it, for hours
+or for days, and treating it as a fact would mean one cancelled print silently stops every job you
+schedule afterwards.
+
+So the state is judged by when it arrived. A print that ended **before** you scheduled the job is
+something you could see when you made the promise, and the promise covers it. A print that ended
+**after** is something you could not have known about, and it wins: the job is cancelled and says
+so. Editing a job re-asks for the promise, which re-dates it, so a job you touch after clearing the
+bed is unblocked by the act of touching it.
+
+When the printer reports an undismissed print but gives no usable end time for it, there is nothing
+to compare against and the job is cancelled, saying exactly that.
 
 Nothing here detects a part, a skirt, a purge blob or a tool left on the plate.
 

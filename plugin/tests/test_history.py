@@ -10,7 +10,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from print_scheduler import Job, JobState, PrintRecord, find_our_print, verdict_for
+from print_scheduler import (
+    Job,
+    JobState,
+    PrintRecord,
+    find_our_print,
+    last_print_ended_at,
+    verdict_for,
+)
 
 BENCHY = "3DBenchy_ASA_HF_48m40s.gcode"
 SIX_IN_THE_MORNING = 1_758_348_000.0
@@ -33,6 +40,7 @@ def a_record(**overrides: object) -> PrintRecord:
         "filename": BENCHY,
         "start_time": SIX_IN_THE_MORNING + 2,
         "status": "completed",
+        "end_time": SIX_IN_THE_MORNING + 900,
     }
     defaults.update(overrides)
     return PrintRecord(**defaults)  # type: ignore[arg-type]
@@ -70,6 +78,22 @@ def test_another_file_is_never_ours() -> None:
 
 def test_a_job_that_never_started_has_no_print_to_find() -> None:
     assert find_our_print(a_started_job(decided_at=None), [a_record()]) is None
+
+
+def test_the_most_recent_finished_print_is_the_one_that_dates_the_bed() -> None:
+    records = [
+        a_record(job_id="000097", end_time=SIX_IN_THE_MORNING - 8000),
+        a_record(job_id="0000BC", end_time=SIX_IN_THE_MORNING - 600),
+    ]
+    assert last_print_ended_at(records) == SIX_IN_THE_MORNING - 600
+
+
+def test_a_print_still_running_has_no_end_time_to_offer() -> None:
+    assert last_print_ended_at([a_record(end_time=0.0)]) is None
+
+
+def test_no_history_at_all_dates_nothing() -> None:
+    assert last_print_ended_at([]) is None
 
 
 def test_the_verdict_is_looked_up_by_the_printers_own_id() -> None:

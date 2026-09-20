@@ -80,6 +80,10 @@ class Job:
     job_id: str
     filename: str
     start_at: float
+    # When the bed was promised clear. The printer's own 'a print ended and nobody
+    # acknowledged it' states are only a warning about what changed after that moment: a
+    # state you could see when you promised is a state you promised in spite of.
+    created_at: float = 0.0
     typed_time: str = ""
     timezone_name: str = ""
     bed_acknowledged: bool = False
@@ -106,6 +110,7 @@ class Job:
             "job_id": self.job_id,
             "filename": self.filename,
             "start_at": self.start_at,
+            "created_at": self.created_at,
             "typed_time": self.typed_time,
             "timezone_name": self.timezone_name,
             "bed_acknowledged": self.bed_acknowledged,
@@ -128,6 +133,7 @@ def job_from_dict(payload: dict[str, Any]) -> Job:
         job_id=str(payload["job_id"]),
         filename=str(payload["filename"]),
         start_at=float(payload["start_at"]),
+        created_at=float(payload.get("created_at", 0.0)),
         typed_time=str(payload.get("typed_time", "")),
         timezone_name=str(payload.get("timezone_name", "")),
         bed_acknowledged=bool(payload.get("bed_acknowledged", False)),

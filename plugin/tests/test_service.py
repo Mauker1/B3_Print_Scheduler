@@ -64,6 +64,17 @@ def test_the_slicer_estimate_is_kept_so_a_listing_needs_no_metadata_reads(tmp_pa
     assert projected_finish(job) == SIX_IN_THE_MORNING + BENCHY_SECONDS
 
 
+def test_a_job_records_when_the_bed_was_promised(tmp_path: Path) -> None:
+    assert a_service(tmp_path).add(a_request(), LAST_NIGHT).created_at == LAST_NIGHT
+
+
+def test_editing_re_asks_for_the_promise_so_it_is_re_dated(tmp_path: Path) -> None:
+    service = a_service(tmp_path)
+    job = service.add(a_request(), LAST_NIGHT)
+    later = service.update(job.job_id, a_request(), LAST_NIGHT + 3600)
+    assert later.created_at == LAST_NIGHT + 3600
+
+
 def test_a_time_that_has_already_passed_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ScheduleRejectedError, match="already passed"):
         a_service(tmp_path).add(a_request(), SIX_IN_THE_MORNING + 1)

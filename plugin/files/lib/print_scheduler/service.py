@@ -134,6 +134,7 @@ class ScheduleService:
             job_id=new_job_id(),
             filename=request.filename,
             start_at=request.start_at,
+            created_at=now,
             typed_time=request.typed_time,
             timezone_name=request.timezone_name,
             bed_acknowledged=request.bed_acknowledged,
@@ -159,6 +160,9 @@ class ScheduleService:
                 existing,
                 filename=request.filename,
                 start_at=request.start_at,
+                # Editing re-asks for the promise about the bed, so it is a new promise,
+                # made now, and it covers what the printer is saying now.
+                created_at=now,
                 typed_time=request.typed_time,
                 timezone_name=request.timezone_name,
                 bed_acknowledged=request.bed_acknowledged,

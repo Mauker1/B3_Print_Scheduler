@@ -5,6 +5,25 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.2 (in development)
+
+- **Fixed: one cancelled print stopped every job scheduled after it.** The printer reports a
+  finished or cancelled print until somebody dismisses it on the screen, and the scheduler was
+  reading that as "there is something on the bed". It is a latch, not a reading, so the first
+  print anyone cancelled blocked the scheduler indefinitely. The state is now judged by when it
+  arrived: a print that ended before you scheduled the job is one you could see when you promised
+  the bed would be clear, so the promise covers it, and only a print that ended afterwards stops
+  the job. Editing a job re-dates the promise.
+- A job now records when its promise was made, and the tick reads the printer's history once and
+  uses it both to date the bed and to confirm a start.
+- **Dropped two dead commands from the start.** `SET_PRINT_EXTRUDER_MAP` and
+  `SET_PRINT_USED_EXTRUDERS` were being sent ahead of the start. The printer's own source settles
+  what happens next: `SDCARD_PRINT_FILE_WITH_PARAMETERS` calls `SET_PRINT_TASK_PARAMETERS` with
+  the same arguments, and that resets both the toolhead map and the used list unconditionally
+  before applying its own `MAP_TABLE`. The two commands were overwritten a moment after being
+  sent, which is worse than useless: it is dead code that reads as live, and the next person to
+  debug a bad toolhead would have started there. The start is one command now.
+
 ## 0.1.1 (in development)
 
 - **Fixed: a print could be started on the wrong toolhead.** A file numbers its filaments by

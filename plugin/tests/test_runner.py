@@ -136,6 +136,57 @@ def test_an_undismissed_cancelled_print_means_the_same() -> None:
     assert settle(a_job(), printer).refusal is Refusal.BED_NOT_CLEARED
 
 
+LAST_NIGHT = SIX_IN_THE_MORNING - 8 * 60 * ONE_MINUTE
+
+
+def a_print_that_ended(status: str, ended_at: float) -> PrintRecord:
+    return PrintRecord(
+        job_id="0000BC",
+        filename="something_else.gcode",
+        start_time=ended_at - 100,
+        status=status,
+        end_time=ended_at,
+    )
+
+
+def test_a_cancelled_print_from_before_you_promised_does_not_block() -> None:
+    # `cancelled` never clears itself. It sat for forty five minutes with nothing on screen to
+    # dismiss, and would have sat for days. Read as news it stops the scheduler forever.
+    printer = StandInPrinter(
+        reports=replace(IDLE, print_state="cancelled"),
+        remembers=(a_print_that_ended("cancelled", LAST_NIGHT),),
+    )
+    settled = settle(a_job(created_at=LAST_NIGHT + ONE_MINUTE), printer)
+    assert settled.state is JobState.STARTING
+
+
+def test_a_print_cancelled_after_you_promised_does_block() -> None:
+    printer = StandInPrinter(
+        reports=replace(IDLE, print_state="cancelled"),
+        remembers=(a_print_that_ended("cancelled", SIX_IN_THE_MORNING - 10 * ONE_MINUTE),),
+    )
+    settled = settle(a_job(created_at=LAST_NIGHT), printer)
+    assert settled.refusal is Refusal.BED_NOT_CLEARED
+    assert "after you scheduled" in settled.detail
+
+
+def test_a_finished_print_from_before_you_promised_does_not_block_either() -> None:
+    printer = StandInPrinter(
+        reports=replace(IDLE, print_state="complete"),
+        remembers=(a_print_that_ended("completed", LAST_NIGHT),),
+    )
+    settled = settle(a_job(created_at=LAST_NIGHT + ONE_MINUTE), printer)
+    assert settled.state is JobState.STARTING
+
+
+def test_an_uncleared_bed_with_no_record_of_when_refuses() -> None:
+    # The safe direction, and the message says how to get out of it.
+    printer = StandInPrinter(reports=replace(IDLE, print_state="cancelled"))
+    settled = settle(a_job(created_at=LAST_NIGHT), printer)
+    assert settled.refusal is Refusal.BED_NOT_CLEARED
+    assert "no usable record" in settled.detail
+
+
 def test_a_printer_in_error_cancels_with_the_printers_own_message() -> None:
     printer = StandInPrinter(
         reports=replace(
