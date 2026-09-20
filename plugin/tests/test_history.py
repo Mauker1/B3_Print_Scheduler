@@ -16,7 +16,7 @@ from print_scheduler import (
     PrintRecord,
     find_our_print,
     last_print_ended_at,
-    start_routine_seconds,
+    measure_start_routine,
     verdict_for,
 )
 
@@ -124,23 +124,29 @@ def test_the_status_is_whatever_the_printer_called_it() -> None:
 
 # The two real measurements from the printer, to the second decimal, so a refactor that quietly
 # changes what is being subtracted from what fails here rather than on the hardware.
-FIRST_RUN = {"total_duration": 653.71, "print_duration": 40.07}
+FIRST_RUN = {"total_duration": 653.71, "print_duration": 40.08}
 SECOND_RUN = {"total_duration": 638.67, "print_duration": 40.03}
+# Levelling and timelapse both off, and the bed cooling from 70 C to 45 C even so.
+THIRD_RUN = {"total_duration": 499.14, "print_duration": 39.64}
 
 
 def test_the_setup_time_is_what_the_printer_spent_not_printing() -> None:
-    measured = start_routine_seconds([a_record(**SECOND_RUN)])
+    measured = measure_start_routine([a_record(**SECOND_RUN)])
     assert measured is not None
-    assert round(measured, 2) == 598.64
+    assert round(measured.typical, 2) == 598.64
 
 
-def test_two_runs_of_the_same_file_agree_to_within_a_few_seconds() -> None:
-    # Not a property of the code, a property of the printer, and the reason a median over a
-    # handful of prints is enough. If this printer ever stops being repeatable, the design that
-    # rests on it should be revisited rather than quietly kept.
-    measured = start_routine_seconds([a_record(**SECOND_RUN), a_record(**FIRST_RUN)])
+def test_the_middle_of_a_spread_is_quoted_with_the_spread_around_it() -> None:
+    # The three real runs. They are not identical, and the reason is the printer rather than the
+    # measurement: the fastest had no levelling, the slowest did. So the page is given both the
+    # middle and the ends, and quotes a range rather than a promise.
+    measured = measure_start_routine([
+        a_record(**THIRD_RUN), a_record(**SECOND_RUN), a_record(**FIRST_RUN)
+    ])
     assert measured is not None
-    assert 590 < measured < 620
+    assert round(measured.typical, 2) == 598.64
+    assert round(measured.shortest, 2) == 459.50
+    assert round(measured.longest, 2) == 613.63
 
 
 def test_a_print_cancelled_during_the_start_routine_is_not_a_measurement() -> None:
@@ -148,23 +154,36 @@ def test_a_print_cancelled_during_the_start_routine_is_not_a_measurement() -> No
     # print_duration of exactly zero, so counting it would read 32 seconds as the setup time
     # and drag the figure to a third of the truth.
     cancelled = a_record(status="cancelled", total_duration=32.36, print_duration=0.0)
-    measured = start_routine_seconds([cancelled, a_record(**SECOND_RUN)])
+    measured = measure_start_routine([cancelled, a_record(**SECOND_RUN)])
     assert measured is not None
-    assert round(measured, 2) == 598.64
+    assert round(measured.typical, 2) == 598.64
+    assert round(measured.shortest, 2) == 598.64
 
 
 def test_one_print_somebody_paused_for_an_hour_does_not_move_it() -> None:
     paused = a_record(total_duration=4238.67, print_duration=40.03)
     records = [a_record(**SECOND_RUN), paused, a_record(**FIRST_RUN)]
-    measured = start_routine_seconds(records)
+    measured = measure_start_routine(records)
     assert measured is not None
-    assert measured < 700
+    assert measured.typical < 700
+
+
+def test_and_once_there_are_enough_prints_it_does_not_widen_the_range_either() -> None:
+    # Below the trimming threshold an hour long pause does widen the quoted range, which is
+    # honest but ugly. From five measurements up, the ends come off and it stops mattering.
+    paused = a_record(total_duration=4238.67, print_duration=40.03)
+    ordinary = [a_record(**SECOND_RUN), a_record(**FIRST_RUN), a_record(**THIRD_RUN)]
+    measured = measure_start_routine([paused, *ordinary, a_record(**SECOND_RUN)])
+    assert measured is not None
+    assert measured.longest < 700
+    # The fastest is trimmed with it, which is the price of the same rule applied both ends.
+    assert measured.shortest > 500
 
 
 def test_a_printer_that_has_finished_nothing_gives_no_number() -> None:
     # And the page then says so, rather than being handed a figure from somebody's laptop.
-    assert start_routine_seconds([]) is None
-    assert start_routine_seconds([a_record(status="cancelled", print_duration=0.0)]) is None
+    assert measure_start_routine([]) is None
+    assert measure_start_routine([a_record(status="cancelled", print_duration=0.0)]) is None
 
 
 def test_history_older_than_the_last_ten_finished_prints_is_left_out() -> None:
@@ -172,6 +191,6 @@ def test_history_older_than_the_last_ten_finished_prints_is_left_out() -> None:
     # show up in days rather than never.
     recent = [a_record(**SECOND_RUN) for _ in range(10)]
     ancient = [a_record(total_duration=4000.0, print_duration=40.0) for _ in range(40)]
-    measured = start_routine_seconds([*recent, *ancient])
+    measured = measure_start_routine([*recent, *ancient])
     assert measured is not None
-    assert round(measured, 2) == 598.64
+    assert round(measured.typical, 2) == 598.64

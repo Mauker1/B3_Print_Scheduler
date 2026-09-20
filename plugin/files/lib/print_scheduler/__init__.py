@@ -16,9 +16,10 @@ from print_scheduler.gcode_files import (
     tools_used,
 )
 from print_scheduler.history import (
+    SetupTime,
     find_our_print,
     last_print_ended_at,
-    start_routine_seconds,
+    measure_start_routine,
     verdict_for,
 )
 from print_scheduler.jobs import (
@@ -115,6 +116,7 @@ __all__ = [
     "ScheduleRejectedError",
     "ScheduleService",
     "ScheduleStore",
+    "SetupTime",
     "SchedulerRequestHandler",
     "SchedulerServer",
     "StartRefusedError",
@@ -144,7 +146,7 @@ __all__ = [
     "render_schedule_page",
     "run_tick",
     "snapshot_from_status",
-    "start_routine_seconds",
+    "measure_start_routine",
     "split_slicer_list",
     "summarise",
     "tick_once",

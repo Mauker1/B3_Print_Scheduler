@@ -73,16 +73,29 @@ A_TIME_WELL_IN_THE_FUTURE = "2030-06-01T06:00"
 MULTI_TOOL_FILE = "04_XYZ_Cali_PLA_14m25s.gcode"
 PATIENCE_MILLISECONDS = 5000
 
-# The durations are the printer's own, off job 0000BE, so the page has a real setup time to
-# quote rather than a round number that would hide an off by a factor mistake.
-A_PRINT_THAT_FINISHED = PrintRecord(
-    job_id="0000BE",
-    filename=BENCHY,
-    start_time=1789925226.45,
-    status="completed",
-    end_time=1789925865.19,
-    total_duration=638.67,
-    print_duration=40.03,
+# The durations are the printer's own, off jobs 0000BE and 0000BF, so the page has a real setup
+# time to quote rather than a round number that would hide an off by a factor mistake. The two
+# differ because one had levelling on and the other did not, which is exactly the spread the
+# page has to be able to say out loud.
+PRINTS_THAT_FINISHED = (
+    PrintRecord(
+        job_id="0000BF",
+        filename=BENCHY,
+        start_time=1789928000.00,
+        status="completed",
+        end_time=1789928499.14,
+        total_duration=499.14,
+        print_duration=39.64,
+    ),
+    PrintRecord(
+        job_id="0000BE",
+        filename=BENCHY,
+        start_time=1789925226.45,
+        status="completed",
+        end_time=1789925865.19,
+        total_duration=638.67,
+        print_duration=40.03,
+    ),
 )
 
 failures: list[str] = []
@@ -150,6 +163,7 @@ def check_scheduling(page: Page) -> None:
     check("it says when it starts", "Starts" in pending, True)
     check("it projects a finish", "should finish around" in pending, True)
     check("it names the setup time", "of setup, then" in pending, True)
+    check("and quotes it as a range when the printer varies", "8m to 10m" in pending, True)
     check(
         "and does not warn about a setup time it knows",
         "not counting the printer's setup" in pending,
@@ -228,7 +242,7 @@ def report() -> int:
 
 def main() -> int:
     printer = StandInPrinter(
-        describes=dict(WHITE_PLA_METADATA), remembers=(A_PRINT_THAT_FINISHED,)
+        describes=dict(WHITE_PLA_METADATA), remembers=PRINTS_THAT_FINISHED
     )
     with tempfile.TemporaryDirectory() as scratch:
         base_url, server = serve(Path(scratch), printer)

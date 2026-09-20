@@ -113,7 +113,7 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 var CLOCK_SKEW_TOLERANCE_SECONDS = 120;
 var REFRESH_MILLISECONDS = 10000;
 
-var state = { jobs: [], printer: null, summary: null, editing: null, setupSeconds: null };
+var state = { jobs: [], printer: null, summary: null, editing: null, setup: null };
 
 function element(tag, className, text) {
   var made = document.createElement(tag);
@@ -162,6 +162,14 @@ function howLong(seconds) {
   var hours = Math.floor(seconds / 3600);
   var minutes = Math.round((seconds % 3600) / 60);
   return hours ? (hours + "h " + minutes + "m") : (minutes + "m");
+}
+
+function describeSetup(setup) {
+  if (!setup) { return null; }
+  var shortest = howLong(setup.shortest);
+  var longest = howLong(setup.longest);
+  if (shortest && longest && shortest !== longest) { return shortest + " to " + longest; }
+  return howLong(setup.typical);
 }
 
 function showProblem(target, message) {
@@ -324,7 +332,7 @@ function renderJob(job) {
 
   if (job.state === "scheduled" && job.projected_finish) {
     var printing = howLong(job.estimated_seconds);
-    var setup = howLong(state.setupSeconds);
+    var setup = describeSetup(state.setup);
     if (setup && printing) {
       card.appendChild(element("div", "facts",
         "about " + setup + " of setup, then " + printing + " of printing"));
@@ -470,7 +478,7 @@ function cancelJob(job) {
 function loadJobs() {
   return api("./jobs").then(function (payload) {
     state.jobs = payload.jobs || [];
-    state.setupSeconds = payload.setup_seconds || null;
+    state.setup = payload.setup || null;
     renderJobs();
   }).catch(function (problem) {
     replaceChildren(document.getElementById("pending"), [element("p", "stop", problem.message)]);

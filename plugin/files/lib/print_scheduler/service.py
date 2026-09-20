@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from print_scheduler.gcode_files import FileSummary, summarise
-from print_scheduler.history import start_routine_seconds, verdict_for
+from print_scheduler.history import measure_start_routine, verdict_for
 from print_scheduler.jobs import (
     Job,
     JobState,
@@ -232,10 +232,11 @@ class ScheduleService:
         twice would be two round trips to say one thing.
         """
         records = self.recent_prints()
-        setup_seconds = start_routine_seconds(records)
+        setup = measure_start_routine(records)
+        typical = None if setup is None else setup.typical
         return {
-            "jobs": payload_for(self.jobs(), self._verdicts_in(records), setup_seconds),
-            "setup_seconds": setup_seconds,
+            "jobs": payload_for(self.jobs(), self._verdicts_in(records), typical),
+            "setup": None if setup is None else setup.to_dict(),
         }
 
     def _verdicts_in(self, records: Sequence[PrintRecord]) -> dict[str, PrintRecord]:

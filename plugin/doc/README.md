@@ -48,8 +48,8 @@ scheduled. You can set a job at ten at night and change a spool at midnight.
 
 A slicer's estimate is how long the printing takes. It is not how long the job takes, because
 before the first line of plastic your printer heats a bed, heats a nozzle, probes a mesh, picks up
-a toolhead and purges. On the machine this was written against that is about ten minutes, every
-time, which made the old projection for a short print wrong by a factor of twenty three.
+a toolhead and purges. On the machine this was written against that is eight to ten minutes,
+which made the old projection for a short print wrong by a factor of twenty three.
 
 So the page adds it, and the number is your printer's, not anybody else's. It is the median of
 what the last few finished prints spent not printing, read out of the printer's own job history,
@@ -61,6 +61,12 @@ and it is re-read every time the page refreshes. A job says what it is made of:
 A printer that has not finished a print yet has nothing to measure. It gets the slicer estimate
 alone, labelled *not counting the printer's setup*, rather than a number from somebody else's
 machine.
+
+The figure is a median, so it is a typical setup rather than a promise, and when the prints it
+was measured from disagree the page says so: *about 8m to 10m of setup*. Levelling costs time,
+and so does a bed that has to cool from the last print's temperature to this one's. It collapses
+back to a single figure when the ends of the range would read the same. The clock time beside it
+is worked out from the middle of the range, so there is one time on the page rather than two.
 
 The overlap warning uses the same figure, which is the half of this that matters at six in the
 morning: two jobs an hour apart can still collide once the setup time is counted, and a warning

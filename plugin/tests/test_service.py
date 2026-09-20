@@ -251,10 +251,10 @@ def test_the_page_is_told_the_setup_time_and_gets_it_off_one_reading(tmp_path: P
     service = a_service(tmp_path, printer)
     service.add(a_request(), LAST_NIGHT)
     payload = service.schedule_payload()
-    assert payload["setup_seconds"] is not None
-    assert round(payload["setup_seconds"], 2) == SETUP_SECONDS
+    assert payload["setup"] is not None
+    assert round(payload["setup"]["typical"], 2) == SETUP_SECONDS
     assert payload["jobs"][0]["projected_finish"] == (
-        SIX_IN_THE_MORNING + payload["setup_seconds"] + BENCHY_SECONDS
+        SIX_IN_THE_MORNING + payload["setup"]["typical"] + BENCHY_SECONDS
     )
 
 
@@ -263,5 +263,5 @@ def test_a_printer_that_cannot_be_reached_still_renders_the_schedule(tmp_path: P
     service = a_service(tmp_path, printer)
     service.add(a_request(), LAST_NIGHT)
     payload = service.schedule_payload()
-    assert payload["setup_seconds"] is None
+    assert payload["setup"] is None
     assert payload["jobs"][0]["projected_finish"] == SIX_IN_THE_MORNING + BENCHY_SECONDS

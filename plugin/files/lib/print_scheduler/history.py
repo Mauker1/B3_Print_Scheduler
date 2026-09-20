@@ -19,6 +19,7 @@ answer and nobody else's, which is why it is measured here rather than written d
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from statistics import median
 
 from print_scheduler.jobs import Job
@@ -37,6 +38,11 @@ FINISHED = "completed"
 # Enough to ride out one unusual print without going so far back that a changed start routine
 # takes days to show up.
 PRINTS_WORTH_MEASURING = 10
+
+# With this many measurements the extremes are dropped before the range is quoted, so one print
+# that sat paused widens nothing. Below it there is nothing to trim: throwing away two of three
+# samples would leave a range of one number pretending to be a range.
+TRIM_THE_ENDS_FROM = 5
 
 
 def find_our_print(job: Job, records: Sequence[PrintRecord]) -> PrintRecord | None:
@@ -71,24 +77,49 @@ def last_print_ended_at(records: Sequence[PrintRecord]) -> float | None:
     return max(ended) if ended else None
 
 
-def start_routine_seconds(records: Sequence[PrintRecord]) -> float | None:
+@dataclass(frozen=True)
+class SetupTime:
+    """What this printer spends getting ready, as a typical figure and the spread around it."""
+
+    typical: float
+    shortest: float
+    longest: float
+
+    def to_dict(self) -> dict[str, float]:
+        return {"typical": self.typical, "shortest": self.shortest, "longest": self.longest}
+
+
+def measure_start_routine(records: Sequence[PrintRecord]) -> SetupTime | None:
     """How long this printer spends between accepting a print and finishing it, minus printing.
 
     Heating, levelling, purging and parking: everything the slicer's estimate leaves out. On the
-    machine this was written against it is about ten minutes, which made a projected finish for a
-    short print wrong by a factor of twenty three. So the page cannot quote a slicer estimate as
-    a finish time, and it cannot carry a number of mine either. It has to ask the printer.
+    machine this was written against it is eight to ten minutes, which made a projected finish
+    for a short print wrong by a factor of twenty three. So the page cannot quote a slicer
+    estimate as a finish time, and it cannot carry a number of mine either. It has to ask the
+    printer.
 
-    The median, not the mean, over the most recent finished prints: one print somebody paused for
-    an hour should not move it, and it will not.
+    It comes back as a range because setup time is not a property of the job. It depends on what
+    the last print left behind: levelling costs time, and a bed that has to cool from 70 C to
+    45 C costs time in the same way a cold one does, only slower. Three prints on one printer
+    spanned 459 to 614 seconds. Quoting the middle of that as a single number reads as a promise
+    the printer never made, so the page says both when they differ.
+
+    The middle is the median rather than the mean, and the extremes are trimmed once there are
+    enough of them, so one print somebody paused for an hour moves neither the figure nor the
+    range.
     """
+    # Newest first, as the printer lists them, so the window is the last few finished prints
+    # rather than the last few entries, which on a bad morning are all cancellations.
     measured = [
         record.total_duration - record.print_duration
         for record in records
         if record.status == FINISHED and record.print_duration > 0 and record.total_duration > 0
     ]
-    usable = [gap for gap in measured if gap > 0][:PRINTS_WORTH_MEASURING]
-    return median(usable) if usable else None
+    usable = sorted(gap for gap in measured[:PRINTS_WORTH_MEASURING] if gap > 0)
+    if not usable:
+        return None
+    kept = usable[1:-1] if len(usable) >= TRIM_THE_ENDS_FROM else usable
+    return SetupTime(typical=median(kept), shortest=kept[0], longest=kept[-1])
 
 
 def verdict_for(job: Job, records: Sequence[PrintRecord]) -> PrintRecord | None:

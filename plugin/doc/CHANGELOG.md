@@ -5,13 +5,30 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.4 (in development)
+
+- **The setup time is quoted as a range when the printer varies.** It was being shown as a single
+  figure, which reads as a promise: *about 10m of setup*. It is a median over prints made under
+  different conditions, and on the machine this was measured on those conditions span 459 to 614
+  seconds. Levelling costs time, and so does a bed cooling from the last print's temperature to
+  this one's. A job now says *about 8m to 10m of setup, then 26s of printing*, and collapses back
+  to one figure when the ends of the range would read the same anyway.
+- The extremes are trimmed once there are five measurements or more, so one print somebody
+  paused for an hour no longer widens the range either. Below five there is nothing to trim.
+- **Corrected in the docs: levelling and timelapse do cost time.** An earlier note said they did
+  not. That was inferred from two uncontrolled runs agreeing to within fifteen seconds, and a
+  third run with both preferences off came in 139 seconds faster. The measurement stands, the
+  claim did not.
+- The projected finish and the overlap warning still use the middle of the range rather than the
+  worst case, so the clock time on the page is one number rather than two.
+
 ## 0.1.3 (in development)
 
 - **Fixed: a projected finish that ignored the printer's own setup time.** The page was quoting
   the slicer's estimate as a finish time. The slicer measures printing; it knows nothing about
-  heating a bed, probing a mesh, picking up a toolhead or purging, and this printer spends about
-  ten minutes on that before the first extrusion. A 26 second print was projected to be done in
-  26 seconds and took ten and a half minutes.
+  heating a bed, probing a mesh, picking up a toolhead or purging, and this printer spends eight
+  to ten minutes on that before the first extrusion. A 26 second print was projected to be done
+  in 26 seconds and took ten and a half minutes.
 - The setup time is now measured from the printer's own job history, as the median of what the
   last few finished prints spent not printing, and re-read whenever the page refreshes. It is
   never a number written into the source, because it belongs to a machine rather than to this
