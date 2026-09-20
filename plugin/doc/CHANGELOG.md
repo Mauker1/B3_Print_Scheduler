@@ -5,6 +5,15 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.5 (in development)
+
+- **Fixed: filenames were refused on printers that could have printed them.** A name containing
+  `#` or `"` is unusable in a gcode command, which is how this printer starts a print. A printer
+  without that command is sent its filename as a URL parameter instead and takes both characters
+  without complaint. The refusal now asks the printer first, at scheduling and again at starting,
+  so a printer that answers differently later cancels the job with a reason rather than sending
+  a name its parser would truncate.
+
 ## 0.1.4 (in development)
 
 - **The setup time is quoted as a range when the printer varies.** It was being shown as a single

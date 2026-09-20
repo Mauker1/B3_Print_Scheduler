@@ -18,6 +18,10 @@ from typing import Any
 # created rather than at the moment it was supposed to start. Non-ASCII is deliberately absent:
 # `M118 顶盖前靴` echoed back intact on the hardware, and this printer ships files with Chinese
 # names, so refusing them would be wrong.
+#
+# They apply only to a printer started by gcode. A printer without the parameterised start is
+# sent its filename as a URL parameter instead, which takes both characters without complaint,
+# so refusing them there would be refusing files the machine can print.
 UNSTARTABLE_CHARACTERS = {
     "#": "the gcode parser treats it as the start of a comment, so the name would be truncated",
     '"': "the name is passed as a quoted gcode parameter, which a double quote would end early",
@@ -157,10 +161,16 @@ def new_job_id() -> str:
     return uuid.uuid4().hex
 
 
-def reason_filename_cannot_start(filename: str) -> str | None:
-    """Return why this name cannot be handed to the printer, or None when it can."""
+def reason_filename_cannot_start(filename: str, starts_by_gcode: bool = True) -> str | None:
+    """Return why this name cannot be handed to this printer, or None when it can.
+
+    `starts_by_gcode` says whether the start goes out as a gcode command. It defaults to the
+    strict answer, so a caller that has not thought about it refuses more rather than less.
+    """
     if not filename.strip():
         return "the filename is empty"
+    if not starts_by_gcode:
+        return None
     for character, why in UNSTARTABLE_CHARACTERS.items():
         if character in filename:
             return f"the name contains {character}, and {why}"

@@ -255,7 +255,9 @@ class ScheduleService:
 
     def _vet(self, request: JobRequest, now: float) -> FileSummary:
         """Refuse everything that can be refused now rather than at six in the morning."""
-        unstartable = reason_filename_cannot_start(request.filename)
+        unstartable = reason_filename_cannot_start(
+            request.filename, self.supports_print_preferences()
+        )
         if unstartable is not None:
             raise ScheduleRejectedError(unstartable)
         if not request.bed_acknowledged:

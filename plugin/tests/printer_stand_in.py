@@ -64,6 +64,14 @@ WHITE_PLA_METADATA: dict[str, Any] = {
     "slicer": "SnapmakerOrca",
 }
 
+# A file sliced for a printer that tracks nothing: no per tool lists, no colours, no bed
+# temperature. Everything the page shows is optional except the name, and this is the fixture
+# that proves it.
+SPARSE_METADATA: dict[str, Any] = {
+    "estimated_time": 1800,
+    "layer_count": 60,
+}
+
 FOUR_TOOL_METADATA: dict[str, Any] = {
     **SINGLE_TOOL_METADATA,
     "filament_used_mm": [647.39, 277.65, 267.72, 94.26],
@@ -127,3 +135,19 @@ class StandInPrinter:
         if self.refuses_start_with is not None:
             raise StartRefusedError(self.refuses_start_with)
         self.started.append((filename, level_bed, record_timelapse, assignments))
+
+
+def a_generic_klipper(**overrides: Any) -> StandInPrinter:
+    """A printer with no parameterised start and nothing loaded that it will admit to.
+
+    Which is to say: any Klipper that is not the machine this plugin was written against. It
+    has never been run against real hardware of this shape, so it is described here instead,
+    and every rule that has to behave differently for it is tested against this fixture.
+    """
+    base: dict[str, Any] = {
+        "offers_preferences": False,
+        "loads": (),
+        "describes": dict(SPARSE_METADATA),
+    }
+    base.update(overrides)
+    return StandInPrinter(**base)

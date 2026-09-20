@@ -181,6 +181,18 @@ A tick is not instantaneous, Moonraker can be briefly unreachable while the prin
 Klipper can sit in startup for a few seconds. All three are worth another try or two. A printer that
 is busy is never waited for, whatever this is set to.
 
+## What has been tested, and where
+
+Everything here is exercised against a Snapmaker U1, which is the machine it was written on, and
+every printer specific thing it does is asked for rather than assumed: whether the printer offers
+the parameterised start command, what each toolhead has loaded, and which filenames its gcode
+parser can take. A printer that answers no to all three gets Moonraker's own print start, no
+toolhead map, no preference toggles, and no filename refusals it does not need.
+
+That path is covered by tests and **has not been run on such a printer**. It is written down here
+rather than left to be discovered, and this paragraph changes when a second machine has actually
+run it.
+
 ## What it does not do yet
 
 - **Recurring schedules.** One-shot jobs only.

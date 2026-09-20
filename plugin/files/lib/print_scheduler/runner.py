@@ -87,6 +87,9 @@ class Moment:
     tool_plan: ToolPlan = ToolPlan(applicable=False)
     # When the printer's most recent print ended. None when it keeps no record.
     last_print_ended_at: float | None = None
+    # Whether this printer is started by a gcode command rather than by Moonraker's own print
+    # start. It decides which filenames are startable, and nothing else here.
+    starts_by_gcode: bool = True
 
 
 Rule = Callable[[Moment], Decision | None]
@@ -116,7 +119,7 @@ def _too_late(moment: Moment) -> Decision | None:
 
 
 def _filename_cannot_be_started(moment: Moment) -> Decision | None:
-    problem = reason_filename_cannot_start(moment.job.filename)
+    problem = reason_filename_cannot_start(moment.job.filename, moment.starts_by_gcode)
     if problem is None:
         return None
     return Decision(Action.CANCEL, Refusal.FILENAME_NOT_STARTABLE, problem)
@@ -296,6 +299,7 @@ def _settle_due(
     already_started = False
     loaded = _loaded_filaments(printer)
     ended = last_print_ended_at(seen.recent_prints)
+    by_gcode = _starts_by_gcode(printer)
     for job in due:
         moment = Moment(
             job,
@@ -305,12 +309,25 @@ def _settle_due(
             tolerance_seconds,
             _plan_the_toolheads(printer, job, loaded),
             ended,
+            by_gcode,
         )
         decision = ANOTHER_JOB_STARTED if already_started else decide(moment)
         updated = _carry_out(decision, moment, printer)
         already_started = already_started or updated.state is JobState.STARTING
         settled[job.job_id] = updated
     return settled
+
+
+def _starts_by_gcode(printer: Printer) -> bool:
+    """Asked again at the moment of starting, not carried from when the job was scheduled.
+
+    A printer that cannot be asked is assumed to be started by gcode, which is the stricter
+    answer: it refuses a name rather than sending one the parser would truncate.
+    """
+    try:
+        return printer.supports_print_preferences()
+    except OSError:
+        return True
 
 
 def _confirm(job: Job, seen: PrinterAsSeen, now: float) -> Job:
