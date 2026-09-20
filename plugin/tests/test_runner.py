@@ -30,6 +30,8 @@ from printer_stand_in import (
     CHINESE_NAME,
     IDLE,
     PRINTING_OURS,
+    TOO_MUCH_ASA_METADATA,
+    TWO_COLOUR_METADATA,
     WHITE_PLA_METADATA,
     StandInPrinter,
 )
@@ -430,3 +432,23 @@ def test_cancelling_by_hand_is_not_a_refusal_by_the_printer() -> None:
 def test_every_refusal_reason_is_reachable_from_the_rules_or_by_hand() -> None:
     # A new way to refuse cannot be added without a test and a row in plugin/doc/README.md.
     assert len(print_scheduler.Refusal) == 12
+
+
+def test_a_two_colour_print_sends_both_pairs_and_neither_is_the_identity() -> None:
+    # Slot 0 wants the white PLA, which is on T2. Slot 1 wants the purple, which is on T3.
+    # A printer sent no map defaults to slot 0 on T0 and slot 1 on T1, which here is two
+    # wrong toolheads rather than one.
+    printer = StandInPrinter(describes=dict(TWO_COLOUR_METADATA))
+    settled = settle(a_job(), printer)
+    assert settled.state is JobState.STARTING
+    assert printer.started == [(BENCHY, None, None, ((0, 2), (1, 3)))]
+
+
+def test_a_multi_tool_job_whose_material_left_the_machine_overnight_is_cancelled() -> None:
+    # Scheduled when three ASA slots had somewhere to go, fired when they do not. The check
+    # that counts is this one, at the moment of starting, not the one at scheduling.
+    printer = StandInPrinter(describes=dict(TOO_MUCH_ASA_METADATA))
+    settled = settle(a_job(), printer)
+    assert settled.state is JobState.CANCELLED
+    assert settled.refusal is Refusal.NO_TOOLHEAD_FOR_THE_MATERIAL
+    assert printer.started == []

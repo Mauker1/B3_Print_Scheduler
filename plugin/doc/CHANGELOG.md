@@ -7,6 +7,18 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 ## 0.1.5 (in development)
 
+- **Multi tool files can be scheduled.** They were refused because a wrong tool assignment wastes
+  the whole print, and until 0.1.1 the scheduler had no way to make a right one. It has since,
+  and the printer's own source settles the rest: the start command hands its parameters straight
+  to `SET_PRINT_TASK_PARAMETERS`, which rebuilds the toolhead map from `MAP_TABLE` and then marks
+  exactly those toolheads used. Every slot the file extrudes from gets its own toolhead, listed
+  on the page before you commit to it.
+- Two slots wanting a material only one toolhead holds is refused, naming what is loaded, rather
+  than doubling two slots onto one nozzle.
+- A colour that cannot be matched now names the slot and the toolhead it will run on rather than
+  the toolhead alone, because on a multi colour print knowing which slot went wrong is the whole
+  question.
+
 - **Fixed: filenames were refused on printers that could have printed them.** A name containing
   `#` or `"` is unusable in a gcode command, which is how this printer starts a print. A printer
   without that command is sent its filename as a URL parameter instead and takes both characters

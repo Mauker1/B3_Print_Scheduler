@@ -35,11 +35,17 @@ toolhead. They are not the same thing, and there is no sensible default: left al
 printer sends slot 0 to toolhead 0, which on a four toolhead machine is right only by luck.
 
 So the scheduler chooses. Each slot goes to a toolhead loaded with the material that slot
-needs, and the page shows the choice before you commit to it: *slot 0 PLA on T2*. Colour is
-only a tiebreaker between two toolheads of the same material, because a slicer project's
-colours are whatever you had set that day; if the material matches and the colour does not,
-the page says so and prints anyway. If nothing loaded has the right material, nothing
-starts.
+needs, and the page shows the choice before you commit to it: *slot 0 PLA on T2*. A file using
+several slots gets several toolheads, one each, and the page lists every one of them. If
+nothing loaded has the right material for a slot, or two slots want a material only one
+toolhead holds, nothing starts and the page says what is loaded instead.
+
+Colour is only a tiebreaker between two toolheads of the same material, because a slicer
+project's colours are whatever you had set that day; if the material matches and the colour
+does not, the page names each slot and the toolhead it will run on, and prints anyway. That is
+worth knowing on a multi colour print: when two slots share a material and neither colour is
+loaded, which slot gets which toolhead is arbitrary, and the print comes out in the wrong
+colours rather than not at all.
 
 The choice is made again at the moment the job fires, never carried over from when it was
 scheduled. You can set a job at ten at night and change a spool at midnight.
@@ -196,7 +202,7 @@ run it.
 ## What it does not do yet
 
 - **Recurring schedules.** One-shot jobs only.
-- **Multi tool files.** On a tool changer the printer needs a tool assignment that this plugin does
-  not yet know how to make, and making it wrong wastes the whole print. Those files are refused at
-  schedule time, with the reason shown.
+- **Choosing the toolheads yourself.** The mapping is worked out from what is loaded and shown
+  to you, but it cannot be overridden. When two slots want a material whose colours are not
+  loaded, that choice is arbitrary and you can only cancel, not correct it.
 - **Thumbnails.** The file picker shows filament colours rather than a preview of the model.

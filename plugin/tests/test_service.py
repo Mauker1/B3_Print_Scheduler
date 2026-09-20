@@ -30,6 +30,8 @@ from printer_stand_in import (
     BENCHY,
     FOUR_TOOL_METADATA,
     PRINTING_OURS,
+    TOO_MUCH_ASA_METADATA,
+    TWO_COLOUR_METADATA,
     WHITE_PLA_METADATA,
     StandInPrinter,
 )
@@ -120,9 +122,32 @@ def test_a_material_no_toolhead_holds_is_refused_while_you_are_still_looking(
         a_service(tmp_path, printer).add(a_request(), LAST_NIGHT)
 
 
-def test_a_multi_tool_file_is_refused_with_the_reason(tmp_path: Path) -> None:
-    printer = StandInPrinter(describes=dict(FOUR_TOOL_METADATA))
-    with pytest.raises(ScheduleRejectedError, match="4 toolheads"):
+def test_a_four_slot_file_is_scheduled_and_every_slot_gets_a_toolhead(tmp_path: Path) -> None:
+    service = a_service(tmp_path, StandInPrinter(describes=dict(FOUR_TOOL_METADATA)))
+    job = service.add(a_request(), LAST_NIGHT)
+    assert job.state is JobState.SCHEDULED
+    plan = service.tool_plan(service.file_summary(BENCHY))
+    assert plan.problem is None
+    assert len(plan.assignments) == 4
+    assert len({one.toolhead for one in plan.assignments}) == 4
+
+
+def test_two_slots_of_one_material_go_to_the_toolheads_holding_their_colours(
+    tmp_path: Path,
+) -> None:
+    # The case the identity map would have got wrong in both directions: slot 0 wants the white
+    # PLA on T2 and slot 1 the purple on T3.
+    service = a_service(tmp_path, StandInPrinter(describes=dict(TWO_COLOUR_METADATA)))
+    service.add(a_request(), LAST_NIGHT)
+    plan = service.tool_plan(service.file_summary(BENCHY))
+    assert plan.as_pairs() == ((0, 2), (1, 3))
+
+
+def test_more_slots_of_a_material_than_the_machine_holds_is_refused(tmp_path: Path) -> None:
+    # Three ASA slots against one ASA toolhead. A toolhead cannot run two slots of a print, so
+    # the third has nowhere to go and the job is refused rather than quietly doubled up.
+    printer = StandInPrinter(describes=dict(TOO_MUCH_ASA_METADATA))
+    with pytest.raises(ScheduleRejectedError, match="no free toolhead"):
         a_service(tmp_path, printer).add(a_request(), LAST_NIGHT)
 
 

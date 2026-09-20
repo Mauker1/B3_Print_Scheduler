@@ -72,6 +72,29 @@ SPARSE_METADATA: dict[str, Any] = {
     "layer_count": 60,
 }
 
+# Two slots, both PLA, and neither maps to the toolhead of the same number: slot 0 wants the
+# white on T2 and slot 1 the purple on T3. The identity map that 0.1.0 relied on would put both
+# on the wrong toolhead, so this is the fixture that proves the map is a map.
+TWO_COLOUR_METADATA: dict[str, Any] = {
+    "filament_used_mm": [180.0, 95.0, 0.0, 0.0],
+    "filament_weight": [0.54, 0.28, 0.0, 0.0],
+    "filament_type": "PLA;PLA;PLA;PLA",
+    "filament_colour": "#E2DEDB;#5E43B7;#000000;#000000",
+    "nozzle_temp": [230.0, 230.0, 220.0, 220.0],
+    "estimated_time": 1020,
+    "first_layer_bed_temp": 45.0,
+    "chamber_temp": 0.0,
+    "layer_count": 30,
+    "slicer": "SnapmakerOrca",
+}
+
+# More of one material than the machine holds: three ASA slots against a single ASA toolhead.
+TOO_MUCH_ASA_METADATA: dict[str, Any] = {
+    **SINGLE_TOOL_METADATA,
+    "filament_used_mm": [100.0, 100.0, 100.0, 0.0],
+    "filament_type": "ASA;ASA;ASA;PLA",
+}
+
 FOUR_TOOL_METADATA: dict[str, Any] = {
     **SINGLE_TOOL_METADATA,
     "filament_used_mm": [647.39, 277.65, 267.72, 94.26],

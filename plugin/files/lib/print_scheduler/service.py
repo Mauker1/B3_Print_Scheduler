@@ -277,12 +277,6 @@ class ScheduleService:
         plan = self.tool_plan(summary)
         if plan.problem is not None:
             raise ScheduleRejectedError(plan.problem)
-        if len(summary.tools) > 1:
-            raise ScheduleRejectedError(
-                f"{filename} uses {len(summary.tools)} toolheads. Starting a multi tool print "
-                "needs a tool assignment this plugin does not know how to make yet, and making it "
-                "wrong would waste the print."
-            )
         return summary
 
 

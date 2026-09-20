@@ -234,7 +234,7 @@ function describeSlot(tool, plan) {
 function mismatchedColours(plan) {
   if (!plan || !plan.assignments) { return []; }
   return plan.assignments.filter(function (one) { return one.colours_differ; })
-    .map(function (one) { return "T" + one.toolhead; });
+    .map(function (one) { return "slot " + one.slot + " on T" + one.toolhead; });
 }
 
 function renderFileFacts() {
@@ -270,15 +270,9 @@ function renderFileFacts() {
     parts.push(element("p", "stop", summary.plan.problem));
   } else if (mismatchedColours(summary.plan).length) {
     parts.push(element("p", "warn",
-      "The colour loaded is not the colour this file was sliced for on " +
-      mismatchedColours(summary.plan).join(", ") +
-      ". The material matches, so it will print; it will not be the colour on screen."));
-  }
-
-  if (summary.tools.length > 1) {
-    parts.push(element("p", "stop",
-      "This file uses " + summary.tools.length + " toolheads. Starting a multi tool print " +
-      "needs a tool assignment this plugin cannot make yet, so it will not schedule it."));
+      "The colours loaded are not the colours this file was sliced for: " +
+      mismatchedColours(summary.plan).join("; ") +
+      ". The material matches, so it will print; it will not be the colours on screen."));
   }
   replaceChildren(target, parts);
 }
@@ -389,9 +383,11 @@ function refreshSaveButton() {
   var chosen = document.getElementById("file-choice").value;
   var when = document.getElementById("start-at").value;
   var acknowledged = document.getElementById("bed-clear").checked;
-  var tooManyTools = state.summary && state.summary.tools.length > 1;
+  // The one thing that makes a file unschedulable is that its slots cannot be given
+  // toolheads. The service refuses it too; this is so the button says so first.
+  var unplannable = state.summary && state.summary.plan && state.summary.plan.problem;
   document.getElementById("save").disabled =
-    !chosen || !when || !acknowledged || Boolean(tooManyTools);
+    !chosen || !when || !acknowledged || Boolean(unplannable);
 }
 
 function startEditing(job) {

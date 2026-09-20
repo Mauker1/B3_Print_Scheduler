@@ -65,12 +65,14 @@ from print_scheduler import (  # noqa: E402
 from printer_stand_in import (  # noqa: E402
     BENCHY,
     FOUR_TOOL_METADATA,
+    TOO_MUCH_ASA_METADATA,
     WHITE_PLA_METADATA,
     StandInPrinter,
 )
 
 A_TIME_WELL_IN_THE_FUTURE = "2030-06-01T06:00"
 MULTI_TOOL_FILE = "04_XYZ_Cali_PLA_14m25s.gcode"
+SLOTS_IN_THE_MULTI_TOOL_FILE = 4
 PATIENCE_MILLISECONDS = 5000
 
 # The durations are the printer's own, off jobs 0000BE and 0000BF, so the page has a real setup
@@ -183,18 +185,46 @@ def check_cancelling(page: Page) -> None:
     check("and why", "you cancelled it" in text_of(page, "#settled"), True)
 
 
-def check_a_multi_tool_file_is_refused(page: Page, printer: StandInPrinter) -> None:
+def check_a_multi_tool_file(page: Page, printer: StandInPrinter) -> None:
     print("\nA multi tool file")
     printer.holds = frozenset({*printer.holds, MULTI_TOOL_FILE})
     printer.describes = dict(FOUR_TOOL_METADATA)
     page.reload()
     wait_for_the_file_list(page)
     page.select_option("#file-choice", MULTI_TOOL_FILE)
-    page.wait_for_selector("#file-facts .stop", timeout=PATIENCE_MILLISECONDS)
-    check("it says why it cannot be scheduled", "4 toolheads" in text_of(page, "#file-facts"), True)
+    page.wait_for_selector("#file-facts .tools", timeout=PATIENCE_MILLISECONDS)
+    facts = text_of(page, "#file-facts")
+    check(
+        "every slot is listed",
+        facts.count("slot ") >= SLOTS_IN_THE_MULTI_TOOL_FILE,
+        True,
+    )
+    check(
+        "each one names its toolhead",
+        facts.count(" on T") >= SLOTS_IN_THE_MULTI_TOOL_FILE,
+        True,
+    )
+    check("nothing refuses it", "#file-facts .stop" not in facts, True)
     page.fill("#start-at", A_TIME_WELL_IN_THE_FUTURE)
     page.check("#bed-clear")
-    check("and scheduling stays refused", page.is_disabled("#save"), True)
+    check("and it can be scheduled", page.is_enabled("#save"), True)
+
+
+def check_a_file_whose_material_is_not_loaded(page: Page, printer: StandInPrinter) -> None:
+    print("\nA file wanting more of a material than the machine holds")
+    printer.describes = dict(TOO_MUCH_ASA_METADATA)
+    page.reload()
+    wait_for_the_file_list(page)
+    page.select_option("#file-choice", MULTI_TOOL_FILE)
+    page.wait_for_selector("#file-facts .stop", timeout=PATIENCE_MILLISECONDS)
+    check(
+        "it says what is loaded instead",
+        "no free toolhead" in text_of(page, "#file-facts"),
+        True,
+    )
+    page.fill("#start-at", A_TIME_WELL_IN_THE_FUTURE)
+    page.check("#bed-clear")
+    check("and scheduling is refused", page.is_disabled("#save"), True)
 
 
 def watch_for_complaints(page: Page) -> None:
@@ -215,7 +245,8 @@ def run_every_check(page: Page, printer: StandInPrinter, base_url: str) -> None:
     check_the_bed_promise_is_required(page)
     check_scheduling(page)
     check_cancelling(page)
-    check_a_multi_tool_file_is_refused(page, printer)
+    check_a_multi_tool_file(page, printer)
+    check_a_file_whose_material_is_not_loaded(page, printer)
 
 
 def serve(scratch: Path, printer: StandInPrinter) -> tuple[str, Any]:
