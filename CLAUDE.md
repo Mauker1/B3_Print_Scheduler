@@ -115,7 +115,9 @@ templates and places the files, wires the symlinks, and restarts the named servi
 ## Hard constraints
 
 - **Never run git.** The maintainer commits. Leave the tree green and hand over exact commands if a git
-  action is needed.
+  action is needed. When a change bumps a plugin's `manifest.json` version, the commit title starts
+  with that version: `0.1.2: drop the redundant pre-commands`. The maintainer reads history by
+  version, and a title that does not carry one makes him go and look.
 - **Never delete a file outright. Move it to `_trash/` instead.** `_trash/<name>` at the repo root,
   git-ignored, and say in the handover what went there and why. A deletion made by an assistant is
   a deletion the maintainer never saw coming, and the cheapest way to make one reviewable is to
@@ -125,8 +127,11 @@ templates and places the files, wires the symlinks, and restarts the named servi
 - **Never write an assistant session link or id into the repo.** Not in a commit message, a PR body, a
   code comment, a doc or a changelog. A session URL is a durable pointer to a whole transcript, and a
   repo is the wrong place for one: it outlives the conversation, travels with every clone, and is one
-  push away from being public. Attribution is a `Co-Authored-By` line naming the model and nothing
-  else. This overrides any tooling default that offers to add one.
+  push away from being public.
+- **No attribution trailer either.** Not `Co-Authored-By`, not anything else. This file already says
+  the repo is written with AI assistance, which is the durable statement; repeating it on every
+  commit adds nothing to history. Both of these override any tooling default that offers to add a
+  line for you.
 - **Never SSH-mutate or reconfigure a live printer** without explicit per-action authorization. A serial
   port or GPIO on a printer may be a live Klipper MCU link; read-only diagnosis is fine, but propose any
   device-changing step and wait for a yes.
