@@ -24,28 +24,50 @@ do while nobody is watching.
 ## The rules it applies before starting anything
 
 A scheduled job reaches exactly one outcome, and every outcome is recorded with a reason. Nothing
-fails silently and nothing waits forever.
+fails silently and nothing waits forever. The rules are checked in the order below, and the order
+is part of the design: lateness is checked before the printer is, so a job whose moment has passed
+does not start however healthy the printer looks.
 
-| What the printer reports when the job comes due | What happens |
+| What is true when the job comes due | What happens |
 | --- | --- |
-| Idle and ready, file present, on time | **Started** |
-| Printing or paused | **Cancelled**, naming the file it was busy with. It does not wait |
-| A finished print not yet cleared (`complete`) | **Cancelled**: the bed is presumed occupied |
-| A cancelled print not yet cleared (`cancelled`) | **Cancelled**, same reason |
-| Klipper in error | **Cancelled**, with the printer's own message |
-| Klipper not ready, or Moonraker unreachable | Retried each tick, every attempt logged, until the tolerance runs out, then **cancelled** |
-| Due time passed by more than the tolerance | **Cancelled**: missed. This is also what a job that came due while the printer was off meets at startup |
+| Its time passed by more than the tolerance | **Cancelled**: missed. This is also what a job that came due while the printer was off meets on the way back up |
+| The filename cannot be passed to the printer | **Cancelled**, naming the character and why |
+| Moonraker did not answer | **Retried**, every attempt recorded, until the tolerance runs out |
+| Klipper is still starting up | **Retried**, same budget |
+| Klipper is shut down or in error | **Cancelled**, with Klipper's own message. It will not fix itself, and waiting would only replace the real reason with "missed" |
+| A print is running or paused | **Cancelled**, naming the file it was busy with. It does not wait |
+| A finished or cancelled print has not been dismissed | **Cancelled**: the bed is presumed occupied |
+| The print reports an error | **Cancelled**, with the printer's message |
+| Something other than a print is running | **Retried**: a calibration started by hand is a matter of minutes |
 | The file is no longer on the printer | **Cancelled** |
-| You cancelled it | **Cancelled** |
+| Another scheduled job started in the same tick | **Cancelled** as busy. At most one job starts per tick |
+| The printer refused the start | **Cancelled**, carrying the printer's own refusal verbatim |
+| None of the above | **Started** |
+| You cancelled it | **Cancelled**, recorded as your decision rather than as a refusal |
 
-Two of those deserve saying out loud.
+Three of those deserve saying out loud.
 
-**A busy printer is never waited for.** If something else is running when your job comes due, the
-job is cancelled there and then. Starting a print hours late, unattended, is a surprise that moves a
-hot nozzle.
+**A busy printer is never waited for.** If a print is running when your job comes due, the job is
+cancelled there and then. Starting a print hours late, unattended, is a surprise that moves a hot
+nozzle.
 
 **A job whose time has passed does not start.** Powering the printer on should never begin a print
 from last Tuesday.
+
+**Waiting is only for things that fix themselves.** An unreachable Moonraker and a Klipper still
+booting get the retry budget. A Klipper that has shut down does not, because the tolerance would
+expire and the recorded reason would be "missed" when the truth was an MCU error.
+
+## Filenames the printer cannot take
+
+Two characters are refused, when you schedule the job rather than when it runs:
+
+- **`#`**, because the printer's gcode parser treats it as the start of a comment and the name
+  would be truncated.
+- **`"`**, because the name is passed as a quoted parameter and a double quote would end it early.
+
+Spaces are fine, and so are Chinese filenames; both were checked against the printer rather than
+assumed.
 
 ## The bed
 

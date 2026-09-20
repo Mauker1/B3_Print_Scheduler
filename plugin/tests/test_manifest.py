@@ -74,6 +74,22 @@ def test_every_placed_file_is_in_the_package() -> None:
         assert (PLUGIN_ROOT / placement["src"]).is_file(), placement["src"]
 
 
+# The builder walks files/ and packs what it finds, gitignore or not, and the daemon refuses a
+# package holding an archive member the manifest's files[] does not list. So a stray .pyc is a
+# failed install, not a cosmetic problem. Running the tests once is enough to create one.
+UNSHIPPABLE_NAMES = frozenset({"__pycache__", ".DS_Store", ".mypy_cache", ".ruff_cache"})
+UNSHIPPABLE_SUFFIXES = frozenset({".pyc", ".pyo", ".orig", ".rej"})
+
+
+def test_nothing_that_should_not_ship_is_under_files() -> None:
+    strays = sorted(
+        str(path.relative_to(PLUGIN_ROOT))
+        for path in (PLUGIN_ROOT / "files").rglob("*")
+        if path.name in UNSHIPPABLE_NAMES or path.suffix in UNSHIPPABLE_SUFFIXES
+    )
+    assert strays == []
+
+
 def test_every_placed_class_carries_its_permission() -> None:
     for placement in MANIFEST["install"]["place"]:
         assert placement["class"] in MANIFEST["permissions"], placement["class"]
