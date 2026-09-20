@@ -147,7 +147,7 @@ def test_more_slots_of_a_material_than_the_machine_holds_is_refused(tmp_path: Pa
     # Three ASA slots against one ASA toolhead. A toolhead cannot run two slots of a print, so
     # the third has nowhere to go and the job is refused rather than quietly doubled up.
     printer = StandInPrinter(describes=dict(TOO_MUCH_ASA_METADATA))
-    with pytest.raises(ScheduleRejectedError, match="no free toolhead"):
+    with pytest.raises(ScheduleRejectedError, match="needs 3 toolheads with ASA"):
         a_service(tmp_path, printer).add(a_request(), LAST_NIGHT)
 
 
@@ -281,6 +281,52 @@ def test_the_page_is_told_the_setup_time_and_gets_it_off_one_reading(tmp_path: P
     assert payload["jobs"][0]["projected_finish"] == (
         SIX_IN_THE_MORNING + payload["setup"]["typical"] + BENCHY_SECONDS
     )
+
+
+def test_the_finish_comes_out_as_a_range_when_the_printer_has_two_habits(
+    tmp_path: Path,
+) -> None:
+    # The two clusters this printer actually has: a couple of minutes, or ten. The middle of
+    # them is a moment almost no print finishes at, so both ends are published.
+    quick = replace(a_finished_print(), job_id="0000C0", total_duration=338.41,
+                    print_duration=128.60)
+    printer = StandInPrinter(remembers=(quick, a_finished_print()))
+    service = a_service(tmp_path, printer)
+    service.add(a_request(), LAST_NIGHT)
+    entry = service.schedule_payload()["jobs"][0]
+    assert entry["projected_finish_from"] == SIX_IN_THE_MORNING + 209.81 + BENCHY_SECONDS
+    assert entry["projected_finish_to"] == SIX_IN_THE_MORNING + SETUP_SECONDS + BENCHY_SECONDS
+    assert entry["projected_finish_from"] < entry["projected_finish"] <= entry[
+        "projected_finish_to"
+    ]
+
+
+def test_a_printer_with_one_habit_publishes_the_same_time_at_both_ends(
+    tmp_path: Path,
+) -> None:
+    printer = StandInPrinter(remembers=(a_finished_print(),))
+    service = a_service(tmp_path, printer)
+    service.add(a_request(), LAST_NIGHT)
+    entry = service.schedule_payload()["jobs"][0]
+    assert entry["projected_finish_from"] == entry["projected_finish_to"]
+
+
+def test_the_overlap_warning_assumes_the_slowest_setup_the_printer_has_managed(
+    tmp_path: Path,
+) -> None:
+    # A warning that a job might collide is worth having; a collision nobody warned about
+    # costs a print. So this one is deliberately pessimistic where the finish time is not.
+    quick = replace(a_finished_print(), job_id="0000C0", total_duration=338.41,
+                    print_duration=128.60)
+    printer = StandInPrinter(remembers=(quick, a_finished_print()))
+    service = a_service(tmp_path, printer)
+    first = service.add(a_request(), LAST_NIGHT)
+    second = service.add(
+        a_request(start_at=SIX_IN_THE_MORNING + BENCHY_SECONDS + 400), LAST_NIGHT
+    )
+    entries = {one["job_id"]: one for one in service.schedule_payload()["jobs"]}
+    # 400 seconds clear of the typical setup, not clear of the slowest one.
+    assert entries[second.job_id]["overlaps_with"] == first.job_id
 
 
 def test_a_printer_that_cannot_be_reached_still_renders_the_schedule(tmp_path: Path) -> None:

@@ -164,12 +164,39 @@ function howLong(seconds) {
   return hours ? (hours + "h " + minutes + "m") : (minutes + "m");
 }
 
-function describeSetup(setup) {
-  if (!setup) { return null; }
+function setupVaries(setup) {
+  if (!setup) { return false; }
   var shortest = howLong(setup.shortest);
   var longest = howLong(setup.longest);
-  if (shortest && longest && shortest !== longest) { return shortest + " to " + longest; }
+  return Boolean(shortest && longest && shortest !== longest);
+}
+
+function describeSetup(setup) {
+  if (!setup) { return null; }
+  if (setupVaries(setup)) { return howLong(setup.shortest) + " to " + howLong(setup.longest); }
   return howLong(setup.typical);
+}
+
+function sameDay(first, second) {
+  return new Date(first * 1000).toDateString() === new Date(second * 1000).toDateString();
+}
+
+function whenLocalTime(epochSeconds) {
+  return new Date(epochSeconds * 1000).toLocaleTimeString();
+}
+
+// A single clock time is a claim this printer cannot support: its setup time comes in two
+// clusters nine minutes apart, so the middle of them is a moment almost no print finishes at.
+// When the ends of the range read differently, both are shown.
+function describeFinish(job, setup) {
+  var from = job.projected_finish_from;
+  var to = job.projected_finish_to;
+  if (setupVaries(setup) && from && to && from !== to) {
+    return "should finish between " + whenLocal(from) + " and " +
+      (sameDay(from, to) ? whenLocalTime(to) : whenLocal(to));
+  }
+  return "should finish around " + whenLocal(job.projected_finish) +
+    (setup ? "" : ", not counting the printer's setup");
 }
 
 function showProblem(target, message) {
@@ -233,8 +260,13 @@ function describeSlot(tool, plan) {
 
 function mismatchedColours(plan) {
   if (!plan || !plan.assignments) { return []; }
+  // Both values, because the difference is often a typo's worth and a bare "they differ"
+  // reads as a wrong spool when it is nothing of the kind.
   return plan.assignments.filter(function (one) { return one.colours_differ; })
-    .map(function (one) { return "slot " + one.slot + " on T" + one.toolhead; });
+    .map(function (one) {
+      return "slot " + one.slot + " on T" + one.toolhead +
+        " (#" + one.wanted_colour + " against #" + one.loaded_colour + ")";
+    });
 }
 
 function renderFileFacts() {
@@ -270,9 +302,9 @@ function renderFileFacts() {
     parts.push(element("p", "stop", summary.plan.problem));
   } else if (mismatchedColours(summary.plan).length) {
     parts.push(element("p", "warn",
-      "The colours loaded are not the colours this file was sliced for: " +
+      "The nearest colour loaded is not the colour this file was sliced for: " +
       mismatchedColours(summary.plan).join("; ") +
-      ". The material matches, so it will print; it will not be the colours on screen."));
+      ". The material matches, so it will print."));
   }
   replaceChildren(target, parts);
 }
@@ -331,9 +363,7 @@ function renderJob(job) {
       card.appendChild(element("div", "facts",
         "about " + setup + " of setup, then " + printing + " of printing"));
     }
-    card.appendChild(element("div", "facts",
-      "should finish around " + whenLocal(job.projected_finish) +
-      (setup ? "" : ", not counting the printer's setup")));
+    card.appendChild(element("div", "facts", describeFinish(job, state.setup)));
   }
   if (job.overlaps_with) {
     card.appendChild(element("p", "warn",

@@ -40,12 +40,20 @@ several slots gets several toolheads, one each, and the page lists every one of 
 nothing loaded has the right material for a slot, or two slots want a material only one
 toolhead holds, nothing starts and the page says what is loaded instead.
 
-Colour is only a tiebreaker between two toolheads of the same material, because a slicer
-project's colours are whatever you had set that day; if the material matches and the colour
-does not, the page names each slot and the toolhead it will run on, and prints anyway. That is
-worth knowing on a multi colour print: when two slots share a material and neither colour is
-loaded, which slot gets which toolhead is arbitrary, and the print comes out in the wrong
-colours rather than not at all.
+Colour decides between toolheads of the same material, and it does so by nearness rather than
+by exact match, the same way the slicer does when you press *Upload and print*. A colour one
+digit out is a typo, not a different filament, and it should still find its spool. When the
+nearest is not the same, the page says so and prints anyway, showing both values, because
+knowing that #5343B7 went to a toolhead holding #5E43B7 is a different fact from knowing that
+purple went to navy.
+
+Material is never traded away for colour. If nothing loaded has the right material for a slot,
+nothing starts.
+
+The mapping is chosen as a whole rather than a slot at a time. Taking each slot's own best
+toolhead in turn is the obvious approach and it is wrong: slot 0 can take the toolhead slot 1
+needed far more, when slot 0 had an almost as good second choice. What is minimised is the
+total across every slot.
 
 The choice is made again at the moment the job fires, never carried over from when it was
 scheduled. You can set a job at ten at night and change a spool at midnight.
@@ -57,26 +65,32 @@ before the first line of plastic your printer heats a bed, heats a nozzle, probe
 a toolhead and purges. On the machine this was written against that is eight to ten minutes,
 which made the old projection for a short print wrong by a factor of twenty three.
 
-So the page adds it, and the number is your printer's, not anybody else's. It is the median of
-what the last few finished prints spent not printing, read out of the printer's own job history,
-and it is re-read every time the page refreshes. A job says what it is made of:
+So the page adds it, and the number is your printer's, not anybody else's. It is read out of the
+printer's own job history and re-read every time the page refreshes. A job says what it is made
+of:
 
-> about 10m of setup, then 26s of printing
-> should finish around 6:10:24
+> about 3m to 10m of setup, then 26s of printing
+> should finish between 6:03:55 and 6:10:24
 
-A printer that has not finished a print yet has nothing to measure. It gets the slicer estimate
-alone, labelled *not counting the printer's setup*, rather than a number from somebody else's
-machine.
+**Why a range and not a time.** On the printer this was written against, setup time does not
+have a middle. It arrives in two clusters, one around two or three minutes and one around ten,
+and what decides which is not yet understood. A median between them is a value almost no print
+is near: one such projection was six minutes out on a job that lasted five and a half. The range
+around it contained the truth. So the page publishes what it actually knows, which is both ends.
 
-The figure is a median, so it is a typical setup rather than a promise, and when the prints it
-was measured from disagree the page says so: *about 8m to 10m of setup*. Levelling costs time,
-and so does a bed that has to cool from the last print's temperature to this one's. It collapses
-back to a single figure when the ends of the range would read the same. The clock time beside it
-is worked out from the middle of the range, so there is one time on the page rather than two.
+When the prints it measured from agree, both ends read the same and it collapses back to one
+time. A printer with a consistent start routine sees a single figure and a single clock time.
 
-The overlap warning uses the same figure, which is the half of this that matters at six in the
-morning: two jobs an hour apart can still collide once the setup time is counted, and a warning
-that only appears afterwards is not a warning.
+A printer that has not finished a print yet has nothing to measure at all. It gets the slicer
+estimate alone, labelled *not counting the printer's setup*, rather than a number from somebody
+else's machine.
+
+The overlap warning is the one place that deliberately assumes the worst, using the slowest
+setup the printer has managed. A warning about a collision that might not happen costs you a
+glance; a collision nobody warned about costs a print.
+
+That matters more than it sounds at six in the morning: two jobs an hour apart can still collide
+once the setup time is counted, and a warning that only appears afterwards is not a warning.
 
 ## The rules it applies before starting anything
 

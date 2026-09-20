@@ -5,6 +5,34 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.6 (in development)
+
+- **The projected finish is a range, not a time.** Twenty runs off the printer show setup time
+  arriving in two clusters, one around two or three minutes and one around ten, with nothing in
+  between. A median of that is a value almost no print is near, and it showed: one projection
+  was six minutes out on a job lasting five and a half, while the range around it contained the
+  truth. The page now says *should finish between 6:03:55 and 6:10:24*, and collapses back to a
+  single time when the prints it measured from agree.
+- The overlap warning now assumes the slowest setup the printer has managed rather than a
+  typical one. A warning about a collision that might not happen costs a glance; a collision
+  nobody warned about costs a print.
+
+- **Colour now chooses by nearness rather than by exact match**, the same way the slicer does
+  on *Upload and print*. Found on the hardware before it cost a print: a file asking for
+  `#5343B7` against a spool holding `#5E43B7`, a typo's worth apart, matched nothing and fell
+  back to the lowest numbered toolhead of the right material, which was a navy about ninety
+  units away rather than the purple eleven units away. Material is still never traded for
+  colour.
+- **The mapping is chosen as a whole rather than a slot at a time.** Choosing greedily, slot 0
+  can take the toolhead slot 1 needed far more while having an almost as good second choice of
+  its own. The total across every slot is what is minimised now, searched exhaustively, which
+  at these sizes is better than being clever. Ties break on the lowest toolhead number so the
+  same file always maps the same way.
+- A colour that could not be matched exactly names the slot, the toolhead, and both values,
+  because a near miss and a wrong spool used to read identically.
+- Not enough toolheads of one material now says how many the file needs and how many the
+  printer has, rather than reporting the first slot that found nowhere to go.
+
 ## 0.1.5 (in development)
 
 - **Multi tool files can be scheduled.** They were refused because a wrong tool assignment wastes
@@ -15,10 +43,6 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   on the page before you commit to it.
 - Two slots wanting a material only one toolhead holds is refused, naming what is loaded, rather
   than doubling two slots onto one nozzle.
-- A colour that cannot be matched now names the slot and the toolhead it will run on rather than
-  the toolhead alone, because on a multi colour print knowing which slot went wrong is the whole
-  question.
-
 - **Fixed: filenames were refused on printers that could have printed them.** A name containing
   `#` or `"` is unusable in a gcode command, which is how this printer starts a print. A printer
   without that command is sent its filename as a URL parameter instead and takes both characters

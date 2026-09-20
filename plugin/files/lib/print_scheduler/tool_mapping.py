@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from math import dist
 from typing import Any
 
 from print_scheduler.gcode_files import ToolUse
@@ -30,6 +31,10 @@ from print_scheduler.printer import LoadedFilament
 
 HEX_COLOUR_LENGTH = 6
 HEX_DIGITS = frozenset("0123456789ABCDEF")
+
+# A colour neither side stated cannot be scored, and must not look better or worse than one
+# that matches. Zero, so it neither attracts nor repels, and the toolhead index decides.
+UNKNOWN_COLOUR_DISTANCE = 0.0
 
 
 @dataclass(frozen=True)
@@ -93,29 +98,33 @@ def normalise_colour(value: str) -> str:
     return text if all(character in HEX_DIGITS for character in text) else ""
 
 
+def _channels(value: str) -> tuple[int, int, int] | None:
+    text = normalise_colour(value)
+    if not text:
+        return None
+    return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
+
+
+def colour_distance(wanted: str, loaded: str) -> float | None:
+    """How far apart two colours are, or None when either side did not say.
+
+    Straight line distance in RGB, which is a crude model of how colours look and an entirely
+    adequate one for the question being asked: of the toolheads holding the right material,
+    which is nearest to what the file asked for.
+    """
+    first, second = _channels(wanted), _channels(loaded)
+    if first is None or second is None:
+        return None
+    return dist(first, second)
+
+
 def _same_material(wanted: str, loaded: str) -> bool:
     return bool(wanted) and wanted.strip().upper() == loaded.strip().upper()
 
 
-def _choose_toolhead(
-    slot: ToolUse, loaded: Sequence[LoadedFilament], taken: set[int]
-) -> LoadedFilament | None:
-    by_material = [
-        candidate
-        for candidate in loaded
-        if candidate.present
-        and candidate.index not in taken
-        and _same_material(slot.filament_type, candidate.filament_type)
-    ]
-    if not by_material:
-        return None
-    wanted = normalise_colour(slot.colour)
-    by_colour = [
-        candidate for candidate in by_material if normalise_colour(candidate.colour) == wanted
-    ]
-    # Same material and same colour is the same filament as far as a print is concerned, so when
-    # two are equally good the lower toolhead wins and the choice is at least predictable.
-    return (by_colour or by_material)[0]
+def _cost(slot: ToolUse, candidate: LoadedFilament) -> float:
+    apart = colour_distance(slot.colour, candidate.colour)
+    return UNKNOWN_COLOUR_DISTANCE if apart is None else apart
 
 
 def _describe_what_is_loaded(loaded: Sequence[LoadedFilament]) -> str:
@@ -129,29 +138,103 @@ def plan_tools(slots: Sequence[ToolUse], loaded: Sequence[LoadedFilament]) -> To
         return ToolPlan(applicable=False)
     if not slots:
         return ToolPlan(problem="the file does not say what material it needs")
-    return _assign_each(slots, loaded)
+    return _assign_each(sorted(slots, key=lambda one: one.slot), loaded)
 
 
 def _assign_each(slots: Sequence[ToolUse], loaded: Sequence[LoadedFilament]) -> ToolPlan:
-    assignments: list[ToolAssignment] = []
-    taken: set[int] = set()
-    for slot in sorted(slots, key=lambda one: one.slot):
+    """Choose the whole mapping at once, rather than one slot at a time.
+
+    Taking each slot's own best toolhead in turn is the obvious thing and it is wrong: slot 0
+    can take the toolhead slot 1 needed far more, when slot 0 had an almost as good second
+    choice. The assignments are not independent, so the thing being minimised is the total
+    across all of them. With a handful of slots and a handful of toolheads the search is small
+    enough to be exhaustive, which is better than being clever.
+    """
+    usable = [one for one in loaded if one.present]
+    options: list[list[LoadedFilament]] = []
+    for slot in slots:
         if not slot.filament_type:
             return ToolPlan(problem=f"the file does not say what material slot {slot.slot} needs")
-        chosen = _choose_toolhead(slot, loaded, taken)
-        if chosen is None:
+        matching = [one for one in usable if _same_material(slot.filament_type, one.filament_type)]
+        if not matching:
             return ToolPlan(
                 problem=f"no free toolhead has {slot.filament_type} loaded. The printer reports "
                 f"{_describe_what_is_loaded(loaded)}."
             )
-        taken.add(chosen.index)
-        assignments.append(
+        # Nearest colour first, then lowest toolhead, so the search reaches a good answer early
+        # and the pruning has something to prune against.
+        matching.sort(key=lambda one: (_cost(slot, one), one.index))
+        options.append(matching)
+
+    chosen = _cheapest_whole_assignment(slots, options)
+    if chosen is None:
+        return ToolPlan(problem=_why_there_are_not_enough(slots, loaded))
+    return ToolPlan(
+        assignments=tuple(
             ToolAssignment(
                 slot=slot.slot,
-                toolhead=chosen.index,
-                filament_type=chosen.filament_type,
+                toolhead=candidate.index,
+                filament_type=candidate.filament_type,
                 wanted_colour=normalise_colour(slot.colour),
-                loaded_colour=normalise_colour(chosen.colour),
+                loaded_colour=normalise_colour(candidate.colour),
             )
+            for slot, candidate in zip(slots, chosen, strict=True)
         )
-    return ToolPlan(assignments=tuple(assignments))
+    )
+
+
+def _cheapest_whole_assignment(
+    slots: Sequence[ToolUse], options: Sequence[Sequence[LoadedFilament]]
+) -> tuple[LoadedFilament, ...] | None:
+    """The assignment with the least total colour distance, or None if there is not one.
+
+    Ties are broken on the toolhead numbers, lowest first, so that two equally good answers
+    always come out the same way round and a person watching the page sees something stable.
+    """
+    best: tuple[float, tuple[int, ...]] | None = None
+    best_choice: tuple[LoadedFilament, ...] | None = None
+
+    def walk(
+        position: int, taken: frozenset[int], picked: list[LoadedFilament], running: float
+    ) -> None:
+        nonlocal best, best_choice
+        # Distances are never negative, so a partial assignment already worse than the best
+        # complete one cannot be rescued by the slots that remain.
+        if best is not None and running > best[0]:
+            return
+        if position == len(slots):
+            score = (running, tuple(one.index for one in picked))
+            if best is None or score < best:
+                best, best_choice = score, tuple(picked)
+            return
+        for candidate in options[position]:
+            if candidate.index in taken:
+                continue
+            walk(
+                position + 1,
+                taken | {candidate.index},
+                [*picked, candidate],
+                running + _cost(slots[position], candidate),
+            )
+
+    walk(0, frozenset(), [], 0.0)
+    return best_choice
+
+
+def _why_there_are_not_enough(
+    slots: Sequence[ToolUse], loaded: Sequence[LoadedFilament]
+) -> str:
+    """Every slot had somewhere it could go, and they could not all go somewhere at once."""
+    usable = [one for one in loaded if one.present]
+    for material in dict.fromkeys(slot.filament_type for slot in slots):
+        needed = sum(1 for slot in slots if _same_material(slot.filament_type, material))
+        held = sum(1 for one in usable if _same_material(material, one.filament_type))
+        if needed > held:
+            return (
+                f"this file needs {needed} toolheads with {material} and the printer has "
+                f"{held}. The printer reports {_describe_what_is_loaded(loaded)}."
+            )
+    return (
+        f"the file's slots cannot all be given a toolhead of their own. The printer reports "
+        f"{_describe_what_is_loaded(loaded)}."
+    )

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from print_scheduler.gcode_files import FileSummary, summarise
-from print_scheduler.history import measure_start_routine, verdict_for
+from print_scheduler.history import SetupTime, measure_start_routine, verdict_for
 from print_scheduler.jobs import (
     Job,
     JobState,
@@ -96,6 +96,10 @@ def overlapping_job_ids(jobs: Sequence[Job], setup_seconds: float | None = None)
     silent cancellation at six in the morning. It takes the setup time for the same reason the
     projection does: without it this was optimistic by ten minutes a job, which is the difference
     between a warning and a warning that arrives too late to act on.
+
+    The caller passes the slowest setup the printer has managed rather than a typical one,
+    because a warning that a job might collide is worth having and a collision that was not
+    warned about costs a cancelled print.
     """
     pending = sorted(
         (job for job in jobs if job.state is JobState.SCHEDULED), key=lambda job: job.start_at
@@ -233,9 +237,8 @@ class ScheduleService:
         """
         records = self.recent_prints()
         setup = measure_start_routine(records)
-        typical = None if setup is None else setup.typical
         return {
-            "jobs": payload_for(self.jobs(), self._verdicts_in(records), typical),
+            "jobs": payload_for(self.jobs(), self._verdicts_in(records), setup),
             "setup": None if setup is None else setup.to_dict(),
         }
 
@@ -283,14 +286,26 @@ class ScheduleService:
 def payload_for(
     jobs: Sequence[Job],
     verdicts: dict[str, PrintRecord],
-    setup_seconds: float | None = None,
+    setup: SetupTime | None = None,
 ) -> list[dict[str, Any]]:
-    """Render the schedule for the page: what we did, and separately what the printer says."""
-    clashes = overlapping_job_ids(jobs, setup_seconds)
+    """Render the schedule for the page: what we did, and separately what the printer says.
+
+    The finish comes out as three numbers rather than one. This printer's setup time is not a
+    bell curve with a middle; it is two clusters, nine minutes apart, and a median of them is a
+    value almost no print is near. One such projection was six minutes out on a job lasting
+    five and a half, while the range around it contained the truth comfortably.
+    """
+    clashes = overlapping_job_ids(jobs, None if setup is None else setup.longest)
     rendered = []
     for job in jobs:
         entry = job.to_dict()
-        entry["projected_finish"] = projected_finish(job, setup_seconds)
+        entry["projected_finish"] = projected_finish(job, None if setup is None else setup.typical)
+        entry["projected_finish_from"] = projected_finish(
+            job, None if setup is None else setup.shortest
+        )
+        entry["projected_finish_to"] = projected_finish(
+            job, None if setup is None else setup.longest
+        )
         entry["overlaps_with"] = clashes.get(job.job_id)
         verdict = verdicts.get(job.job_id)
         entry["printer_says"] = None if verdict is None else verdict.status

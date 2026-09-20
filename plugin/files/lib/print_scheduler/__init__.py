@@ -83,6 +83,7 @@ from print_scheduler.store import ScheduleStore
 from print_scheduler.tool_mapping import (
     ToolAssignment,
     ToolPlan,
+    colour_distance,
     normalise_colour,
     plan_tools,
 )
@@ -127,6 +128,7 @@ __all__ = [
     "build_server",
     "build_start_script",
     "cancel_by_hand",
+    "colour_distance",
     "decide",
     "find_our_print",
     "is_due",

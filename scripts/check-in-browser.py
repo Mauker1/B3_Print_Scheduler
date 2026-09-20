@@ -81,6 +81,15 @@ PATIENCE_MILLISECONDS = 5000
 # page has to be able to say out loud.
 PRINTS_THAT_FINISHED = (
     PrintRecord(
+        job_id="0000C0",
+        filename=BENCHY,
+        start_time=1789930000.00,
+        status="completed",
+        end_time=1789930338.41,
+        total_duration=338.41,
+        print_duration=128.60,
+    ),
+    PrintRecord(
         job_id="0000BF",
         filename=BENCHY,
         start_time=1789928000.00,
@@ -163,9 +172,10 @@ def check_scheduling(page: Page) -> None:
     pending = text_of(page, "#pending")
     check("the job is listed", "3DBenchy" in pending, True)
     check("it says when it starts", "Starts" in pending, True)
-    check("it projects a finish", "should finish around" in pending, True)
+    check("it projects a finish", "should finish" in pending, True)
     check("it names the setup time", "of setup, then" in pending, True)
-    check("and quotes it as a range when the printer varies", "8m to 10m" in pending, True)
+    check("and quotes it as a range when the printer varies", "3m to 10m" in pending, True)
+    check("the finish is a range too", "should finish between" in pending, True)
     check(
         "and does not warn about a setup time it knows",
         "not counting the printer's setup" in pending,
@@ -217,11 +227,9 @@ def check_a_file_whose_material_is_not_loaded(page: Page, printer: StandInPrinte
     wait_for_the_file_list(page)
     page.select_option("#file-choice", MULTI_TOOL_FILE)
     page.wait_for_selector("#file-facts .stop", timeout=PATIENCE_MILLISECONDS)
-    check(
-        "it says what is loaded instead",
-        "no free toolhead" in text_of(page, "#file-facts"),
-        True,
-    )
+    facts = text_of(page, "#file-facts")
+    check("it says how many short it is", "needs 3 toolheads with ASA" in facts, True)
+    check("and what the printer has instead", "The printer reports" in facts, True)
     page.fill("#start-at", A_TIME_WELL_IN_THE_FUTURE)
     page.check("#bed-clear")
     check("and scheduling is refused", page.is_disabled("#save"), True)
