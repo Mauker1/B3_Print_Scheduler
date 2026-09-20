@@ -24,7 +24,12 @@ from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from print_scheduler.printer import PrinterSnapshot, PrintRecord, StartRefusedError
+from print_scheduler.printer import (
+    LoadedFilament,
+    PrinterSnapshot,
+    PrintRecord,
+    StartRefusedError,
+)
 
 PARAMETERISED_START_COMMAND = "SDCARD_PRINT_FILE_WITH_PARAMETERS"
 
@@ -39,19 +44,55 @@ HISTORY_LIMIT = 50
 
 
 def build_start_script(
-    filename: str, level_bed: bool | None, record_timelapse: bool | None
+    filename: str,
+    level_bed: bool | None,
+    record_timelapse: bool | None,
+    assignments: tuple[tuple[int, int], ...] = (),
 ) -> str:
-    """Build the parameterised start command.
+    """Build the start, the way the printer's own interface builds it.
+
+    Three commands, not one. `SET_PRINT_TASK_PARAMETERS` appears to reset the toolhead map before
+    applying `MAP_TABLE`, which would make the first two redundant, but that is read off one line
+    rather than understood, and the sequence below is the one observed working on the hardware.
+    Simplify it once that reset is understood, not before: the cost of being wrong is a print that
+    runs all night on the wrong toolhead.
 
     A preference left as None is omitted, which leaves the printer's current value alone rather
-    than silently choosing one on the person's behalf.
+    than silently choosing one on the person's behalf. No assignments means a printer with no
+    toolhead map to program, so nothing about it is sent.
     """
+    lines = [
+        f"SET_PRINT_EXTRUDER_MAP CONFIG_EXTRUDER={slot} MAP_EXTRUDER={toolhead}"
+        for slot, toolhead in assignments
+    ]
     parameters = [f'FILENAME="{filename}"']
+    if assignments:
+        toolheads = ",".join(str(toolhead) for _, toolhead in assignments)
+        lines.append(f"SET_PRINT_USED_EXTRUDERS EXTRUDERS={toolheads}")
+        pairs = ", ".join(f"[{slot}, {toolhead}]" for slot, toolhead in assignments)
+        parameters.append(f'MAP_TABLE="[{pairs}]"')
     if level_bed is not None:
         parameters.append(f"BED_LEVEL={int(level_bed)}")
     if record_timelapse is not None:
         parameters.append(f"TIME_LAPSE_CAMERA={int(record_timelapse)}")
-    return f"{PARAMETERISED_START_COMMAND} " + " ".join(parameters)
+    lines.append(f"{PARAMETERISED_START_COMMAND} " + " ".join(parameters))
+    return "\n".join(lines)
+
+
+def loaded_filaments_from_config(config: dict[str, Any]) -> tuple[LoadedFilament, ...]:
+    """Read what each toolhead holds out of the printer's print task config."""
+    materials = config.get("filament_type") or []
+    colours = config.get("filament_color_rgba") or []
+    present = config.get("filament_exist") or []
+    return tuple(
+        LoadedFilament(
+            index=index,
+            filament_type=str(materials[index]),
+            colour=str(colours[index]) if index < len(colours) else "",
+            present=bool(present[index]) if index < len(present) else True,
+        )
+        for index in range(len(materials))
+    )
 
 
 def print_records_from_history(entries: Any) -> tuple[PrintRecord, ...]:
@@ -129,6 +170,12 @@ class MoonrakerPrinter:
         metadata = self._get_result(f"/server/files/metadata?filename={quote(filename)}")
         return dict(metadata)
 
+    def loaded_filaments(self) -> tuple[LoadedFilament, ...]:
+        """What is in each toolhead. Empty on a printer with no print task config."""
+        result = self._get_result("/printer/objects/query?print_task_config")
+        config = result["status"].get("print_task_config")
+        return () if config is None else loaded_filaments_from_config(config)
+
     def supports_print_preferences(self) -> bool:
         """Whether this printer offers the parameterised start command. Asked once, then kept."""
         if self._parameterised_start is None:
@@ -140,11 +187,15 @@ class MoonrakerPrinter:
         return self._parameterised_start
 
     def start_print(
-        self, filename: str, level_bed: bool | None, record_timelapse: bool | None
+        self,
+        filename: str,
+        level_bed: bool | None,
+        record_timelapse: bool | None,
+        assignments: tuple[tuple[int, int], ...] = (),
     ) -> None:
         """Start the print, or raise StartRefusedError carrying the printer's own message."""
         if self.supports_print_preferences():
-            script = build_start_script(filename, level_bed, record_timelapse)
+            script = build_start_script(filename, level_bed, record_timelapse, assignments)
             self._post(f"/printer/gcode/script?script={quote(script)}")
             return
         self._post(f"/printer/print/start?filename={quote(filename)}")

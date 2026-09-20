@@ -18,13 +18,21 @@ import print_scheduler
 from print_scheduler import (
     Job,
     JobState,
+    LoadedFilament,
     PrinterSnapshot,
     PrintRecord,
     Refusal,
     cancel_by_hand,
     run_tick,
 )
-from printer_stand_in import BENCHY, CHINESE_NAME, IDLE, PRINTING_OURS, StandInPrinter
+from printer_stand_in import (
+    BENCHY,
+    CHINESE_NAME,
+    IDLE,
+    PRINTING_OURS,
+    WHITE_PLA_METADATA,
+    StandInPrinter,
+)
 
 SIX_IN_THE_MORNING = 1_758_348_000.0
 ONE_MINUTE = 60.0
@@ -57,7 +65,9 @@ def test_an_idle_printer_on_time_starts_the_print() -> None:
     settled = settle(a_job(level_bed=True, record_timelapse=False), printer)
     # STARTING, not STARTED. The printer said yes; whether it meant it is the next tick.
     assert settled.state is JobState.STARTING
-    assert printer.started == [(BENCHY, True, False)]
+    # Slot 0 wants ASA and only T0 has ASA, so that is where it is sent. Explicitly: the
+    # printer defaults slot 0 to T0, and relying on that default printed into the wrong one.
+    assert printer.started == [(BENCHY, True, False, ((0, 0),))]
 
 
 def test_a_job_that_is_not_due_yet_is_left_alone() -> None:
@@ -72,7 +82,7 @@ def test_a_chinese_filename_starts_like_any_other() -> None:
     printer = StandInPrinter()
     settled = settle(a_job(filename=CHINESE_NAME), printer)
     assert settled.state is JobState.STARTING
-    assert printer.started == [(CHINESE_NAME, None, None)]
+    assert printer.started == [(CHINESE_NAME, None, None, ((0, 0),))]
 
 
 def test_a_job_past_the_tolerance_is_missed_rather_than_started_late() -> None:
@@ -237,6 +247,32 @@ def test_at_most_one_job_starts_in_a_tick() -> None:
     assert len(printer.started) == 1
 
 
+def test_the_start_names_the_toolhead_that_holds_the_right_material() -> None:
+    # The regression. Slot 0 of this file wants white PLA, which is on T2. Left to the printer's
+    # default it would go to T0, where the ASA is, and that is what happened on hardware.
+    printer = StandInPrinter(describes=dict(WHITE_PLA_METADATA))
+    settled = settle(a_job(), printer)
+    assert settled.state is JobState.STARTING
+    assert printer.started == [(BENCHY, None, None, ((0, 2),))]
+    assert "T2" in settled.attempts[-1].detail
+
+
+def test_a_material_no_toolhead_holds_cancels_rather_than_printing_into_the_wrong_one() -> None:
+    only_asa = (LoadedFilament(index=0, filament_type="ASA", colour="000000FF", present=True),)
+    printer = StandInPrinter(describes=dict(WHITE_PLA_METADATA), loads=only_asa)
+    settled = settle(a_job(), printer)
+    assert settled.state is JobState.CANCELLED
+    assert settled.refusal is Refusal.NO_TOOLHEAD_FOR_THE_MATERIAL
+    assert printer.started == []
+
+
+def test_a_printer_that_tracks_no_filament_starts_without_a_map() -> None:
+    printer = StandInPrinter(loads=())
+    settled = settle(a_job(), printer)
+    assert settled.state is JobState.STARTING
+    assert printer.started == [(BENCHY, None, None, ())]
+
+
 def test_a_settled_job_is_not_touched_again() -> None:
     printer = StandInPrinter()
     confirmed = replace(a_job(), state=JobState.STARTED, printer_job_id="0000B9")
@@ -342,4 +378,4 @@ def test_cancelling_by_hand_is_not_a_refusal_by_the_printer() -> None:
 
 def test_every_refusal_reason_is_reachable_from_the_rules_or_by_hand() -> None:
     # A new way to refuse cannot be added without a test and a row in plugin/doc/README.md.
-    assert len(print_scheduler.Refusal) == 11
+    assert len(print_scheduler.Refusal) == 12

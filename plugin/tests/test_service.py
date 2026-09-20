@@ -16,6 +16,7 @@ import pytest
 from print_scheduler import (
     JobRequest,
     JobState,
+    LoadedFilament,
     ScheduleRejectedError,
     ScheduleService,
     ScheduleStore,
@@ -28,6 +29,7 @@ from printer_stand_in import (
     BENCHY,
     FOUR_TOOL_METADATA,
     PRINTING_OURS,
+    WHITE_PLA_METADATA,
     StandInPrinter,
 )
 
@@ -83,6 +85,15 @@ def test_a_filename_the_gcode_parser_cannot_carry_is_refused(tmp_path: Path) -> 
         a_service(tmp_path, printer).add(a_request(filename="plate #2.gcode"), LAST_NIGHT)
 
 
+def test_a_material_no_toolhead_holds_is_refused_while_you_are_still_looking(
+    tmp_path: Path,
+) -> None:
+    only_asa = (LoadedFilament(index=0, filament_type="ASA", colour="000000FF", present=True),)
+    printer = StandInPrinter(describes=dict(WHITE_PLA_METADATA), loads=only_asa)
+    with pytest.raises(ScheduleRejectedError, match="no free toolhead"):
+        a_service(tmp_path, printer).add(a_request(), LAST_NIGHT)
+
+
 def test_a_multi_tool_file_is_refused_with_the_reason(tmp_path: Path) -> None:
     printer = StandInPrinter(describes=dict(FOUR_TOOL_METADATA))
     with pytest.raises(ScheduleRejectedError, match="4 toolheads"):
@@ -131,7 +142,7 @@ def test_a_tick_starts_what_is_due_and_saves_the_result(tmp_path: Path) -> None:
     service = a_service(tmp_path, printer)
     service.add(a_request(), LAST_NIGHT)
     service.tick(SIX_IN_THE_MORNING)
-    assert printer.started == [(BENCHY, None, None)]
+    assert printer.started == [(BENCHY, None, None, ((0, 0),))]
     assert ScheduleStore(tmp_path / "jobs.json").load()[0].state is JobState.STARTING
 
 

@@ -22,6 +22,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from enum import Enum
 
+from print_scheduler.gcode_files import tools_used
 from print_scheduler.history import find_our_print
 from print_scheduler.jobs import Attempt, Job, JobState, Refusal, reason_filename_cannot_start
 from print_scheduler.printer import (
@@ -31,11 +32,13 @@ from print_scheduler.printer import (
     RUNNING_PRINT_STATES,
     STATES_MEANING_OUR_PRINT_RAN,
     UNCLEARED_BED_STATES,
+    LoadedFilament,
     Printer,
     PrinterSnapshot,
     PrintRecord,
     StartRefusedError,
 )
+from print_scheduler.tool_mapping import ToolPlan, plan_tools
 
 SECONDS_PER_MINUTE = 60
 
@@ -71,6 +74,9 @@ class Moment:
     gcode_filenames: frozenset[str]
     now: float
     tolerance_seconds: float
+    # Which toolhead each of the file's slots will run on, worked out now rather than when
+    # the job was scheduled, because a spool can be changed overnight.
+    tool_plan: ToolPlan = ToolPlan(applicable=False)
 
 
 Rule = Callable[[Moment], Decision | None]
@@ -177,6 +183,14 @@ def _other_gcode_is_running(moment: Moment) -> Decision | None:
     )
 
 
+def _no_toolhead_for_the_material(moment: Moment) -> Decision | None:
+    if moment.tool_plan.problem is None:
+        return None
+    return Decision(
+        Action.CANCEL, Refusal.NO_TOOLHEAD_FOR_THE_MATERIAL, moment.tool_plan.problem
+    )
+
+
 def _the_file_is_gone(moment: Moment) -> Decision | None:
     if moment.job.filename in moment.gcode_filenames:
         return None
@@ -201,6 +215,8 @@ DECISION_RULES: tuple[Rule, ...] = (
     _the_printer_is_in_error,
     _other_gcode_is_running,
     _the_file_is_gone,
+    # After the file check: a file that is gone has no materials to match.
+    _no_toolhead_for_the_material,
 )
 
 
@@ -245,10 +261,18 @@ def _settle_due(
     snapshot, filenames = _with_the_file_listing(printer, snapshot)
     settled: dict[str, Job] = {}
     already_started = False
+    loaded = _loaded_filaments(printer)
     for job in due:
-        moment = Moment(job, snapshot, filenames, now, tolerance_seconds)
+        moment = Moment(
+            job,
+            snapshot,
+            filenames,
+            now,
+            tolerance_seconds,
+            _plan_the_toolheads(printer, job, loaded),
+        )
         decision = ANOTHER_JOB_STARTED if already_started else decide(moment)
-        updated = _carry_out(decision, job, printer, now)
+        updated = _carry_out(decision, moment, printer)
         already_started = already_started or updated.state is JobState.STARTING
         settled[job.job_id] = updated
     return settled
@@ -281,6 +305,29 @@ def _the_printer_is_running_our_file(job: Job, snapshot: PrinterSnapshot) -> boo
     )
 
 
+def _loaded_filaments(printer: Printer) -> tuple[LoadedFilament, ...]:
+    try:
+        return printer.loaded_filaments()
+    except OSError:
+        # Read as a printer that does not track what is loaded, which means no map to make
+        # and no map to get wrong. It cannot silently produce a wrong assignment.
+        return ()
+
+
+def _plan_the_toolheads(
+    printer: Printer, job: Job, loaded: Sequence[LoadedFilament]
+) -> ToolPlan:
+    if not loaded:
+        return ToolPlan(applicable=False)
+    try:
+        metadata = printer.file_metadata(job.filename)
+    except OSError:
+        # The file check runs before this rule, so a file that is simply gone is already
+        # settled. Anything else unreadable leaves us unable to say what it needs.
+        return ToolPlan(problem=f"the printer could not describe {job.filename}")
+    return plan_tools(tools_used(metadata), loaded)
+
+
 def _recent_prints(printer: Printer) -> tuple[PrintRecord, ...]:
     try:
         return printer.recent_prints()
@@ -304,12 +351,12 @@ def _with_the_file_listing(
         return PrinterSnapshot(reachable=False, klipper_message=str(unreachable)), frozenset()
 
 
-def _carry_out(decision: Decision, job: Job, printer: Printer, now: float) -> Job:
+def _carry_out(decision: Decision, moment: Moment, printer: Printer) -> Job:
     if decision.action is Action.WAIT:
-        return _waited(job, now, decision)
+        return _waited(moment.job, moment.now, decision)
     if decision.action is Action.CANCEL:
-        return _cancelled(job, now, decision)
-    return _started(job, printer, now)
+        return _cancelled(moment.job, moment.now, decision)
+    return _started(moment, printer)
 
 
 def _waited(job: Job, now: float, decision: Decision) -> Job:
@@ -327,9 +374,15 @@ def _cancelled(job: Job, now: float, decision: Decision) -> Job:
     )
 
 
-def _started(job: Job, printer: Printer, now: float) -> Job:
+def _started(moment: Moment, printer: Printer) -> Job:
+    job, now = moment.job, moment.now
     try:
-        printer.start_print(job.filename, job.level_bed, job.record_timelapse)
+        printer.start_print(
+            job.filename,
+            job.level_bed,
+            job.record_timelapse,
+            moment.tool_plan.as_pairs(),
+        )
     except StartRefusedError as refused:
         return _cancelled(
             job, now, Decision(Action.CANCEL, Refusal.START_REFUSED, str(refused))
@@ -340,8 +393,18 @@ def _started(job: Job, printer: Printer, now: float) -> Job:
         job,
         state=JobState.STARTING,
         decided_at=now,
-        attempts=job.attempts + (Attempt(now, "the printer accepted the start"),),
+        attempts=job.attempts + (Attempt(now, _what_was_asked_for(moment)),),
     )
+
+
+def _what_was_asked_for(moment: Moment) -> str:
+    assignments = moment.tool_plan.assignments
+    if not assignments:
+        return "the printer accepted the start"
+    mapping = ", ".join(
+        f"slot {one.slot} on T{one.toolhead} ({one.filament_type})" for one in assignments
+    )
+    return f"the printer accepted the start, {mapping}"
 
 
 def _confirmed(job: Job, now: float, printer_job_id: str, detail: str) -> Job:

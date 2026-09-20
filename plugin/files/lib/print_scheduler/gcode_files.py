@@ -31,9 +31,11 @@ LOADED_SPOOL_FIELD = "filament_colors"
 
 @dataclass(frozen=True)
 class ToolUse:
-    """One toolhead this file actually extrudes from."""
+    """One slicer slot this file actually extrudes from."""
 
-    index: int
+    # The slicer's slot number, not a toolhead. Which toolhead it runs on is decided at
+    # start time, by matching what this slot needs against what is loaded.
+    slot: int
     used_mm: float
     used_grams: float
     filament_type: str
@@ -43,7 +45,7 @@ class ToolUse:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "index": self.index,
+            "slot": self.slot,
             "used_mm": self.used_mm,
             "used_grams": self.used_grams,
             "filament_type": self.filament_type,
@@ -115,7 +117,7 @@ def tools_used(metadata: dict[str, Any]) -> tuple[ToolUse, ...]:
     colours = split_slicer_list(str(metadata.get("filament_colour", "")))
     return tuple(
         ToolUse(
-            index=index,
+            slot=index,
             used_mm=_as_float(millimetres),
             used_grams=_number_at(metadata.get("filament_weight"), index),
             filament_type=_text_at(types, index),

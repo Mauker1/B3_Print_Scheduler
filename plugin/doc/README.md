@@ -26,6 +26,22 @@ at it, rather than letting it become a cancellation at six in the morning.
 The page needs JavaScript. It is a printer's web interface, and so is everything else on the
 machine.
 
+## Which toolhead it uses
+
+A gcode file numbers its filaments by slicer slot. Your printer numbers its hardware by
+toolhead. They are not the same thing, and there is no sensible default: left alone, a
+printer sends slot 0 to toolhead 0, which on a four toolhead machine is right only by luck.
+
+So the scheduler chooses. Each slot goes to a toolhead loaded with the material that slot
+needs, and the page shows the choice before you commit to it: *slot 0 PLA on T2*. Colour is
+only a tiebreaker between two toolheads of the same material, because a slicer project's
+colours are whatever you had set that day; if the material matches and the colour does not,
+the page says so and prints anyway. If nothing loaded has the right material, nothing
+starts.
+
+The choice is made again at the moment the job fires, never carried over from when it was
+scheduled. You can set a job at ten at night and change a spool at midnight.
+
 ## The rules it applies before starting anything
 
 A scheduled job reaches exactly one outcome, and every outcome is recorded with a reason. Nothing
@@ -45,6 +61,7 @@ does not start however healthy the printer looks.
 | The print reports an error | **Cancelled**, with the printer's message |
 | Something other than a print is running | **Retried**: a calibration started by hand is a matter of minutes |
 | The file is no longer on the printer | **Cancelled** |
+| No free toolhead holds the material the file needs | **Cancelled**, naming what is loaded |
 | Another scheduled job started in the same tick | **Cancelled** as busy. At most one job starts per tick |
 | The printer refused the start | **Cancelled**, carrying the printer's own refusal verbatim |
 | The printer accepted the start and then did not run it | **Cancelled**: the start did not take |

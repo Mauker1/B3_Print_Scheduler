@@ -39,14 +39,14 @@ def test_an_empty_list_is_empty() -> None:
 
 def test_only_the_tools_that_extrude_are_reported() -> None:
     tools = tools_used(SINGLE_TOOL_METADATA)
-    assert [tool.index for tool in tools] == [0]
+    assert [tool.slot for tool in tools] == [0]
     assert tools[0].filament_type == "ASA"
     assert tools[0].used_grams == 8.89
     assert tools[0].nozzle_temperature == 270.0
 
 
 def test_a_four_tool_file_reports_all_four() -> None:
-    assert [tool.index for tool in tools_used(FOUR_TOOL_METADATA)] == [0, 1, 2, 3]
+    assert [tool.slot for tool in tools_used(FOUR_TOOL_METADATA)] == [0, 1, 2, 3]
 
 
 def test_the_colour_comes_from_the_file_and_not_from_the_loaded_spools() -> None:

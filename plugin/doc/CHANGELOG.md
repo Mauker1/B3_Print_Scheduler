@@ -5,6 +5,19 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.1 (in development)
+
+- **Fixed: a print could be started on the wrong toolhead.** A file numbers its filaments by
+  slicer slot and the printer numbers its hardware by toolhead, and the scheduler was letting
+  the printer default slot 0 to toolhead 0. On a four toolhead machine that is right only by
+  luck, and on its first real run it was wrong: a file wanting white PLA went to the toolhead
+  holding ASA. Each slot is now matched to a toolhead by material, the choice is shown before
+  you commit to it, and it is made again at the moment the job fires rather than carried over
+  from when it was scheduled.
+- A job whose material no free toolhead holds is cancelled rather than started, naming what is
+  loaded.
+- The file picker says *slot 0* rather than *T0*, because those were never the same thing.
+
 ## 0.1.0 (in development)
 
 First version. Not released: no tag has been pushed and nothing has been published.

@@ -12,7 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from print_scheduler import PrinterSnapshot, PrintRecord, StartRefusedError
+from print_scheduler import (
+    LoadedFilament,
+    PrinterSnapshot,
+    PrintRecord,
+    StartRefusedError,
+)
 
 BENCHY = "3DBenchy_ASA_HF_48m40s.gcode"
 CHINESE_NAME = "顶盖前靴_TPU_13m5s.gcode"
@@ -32,6 +37,30 @@ SINGLE_TOOL_METADATA: dict[str, Any] = {
     "first_layer_bed_temp": 100.0,
     "chamber_temp": 50.0,
     "layer_count": 240,
+    "slicer": "SnapmakerOrca",
+}
+
+# What is actually in the four toolheads of the machine this was written against. Slot 0 of
+# SINGLE_TOOL_METADATA wants ASA, and only T0 has ASA, so it maps there.
+LOADED_ON_THE_PRINTER = (
+    LoadedFilament(index=0, filament_type="ASA", colour="000000FF", present=True),
+    LoadedFilament(index=1, filament_type="PLA", colour="0A2989FF", present=True),
+    LoadedFilament(index=2, filament_type="PLA", colour="E2DEDBFF", present=True),
+    LoadedFilament(index=3, filament_type="PLA", colour="5E43B7FF", present=True),
+)
+
+# Cube_PLA_26s.gcode, verbatim from the printer, and the file that exposed the bug: its slot 0
+# wants white PLA, which is on T2, and the scheduler sent it to T0 where the ASA is.
+WHITE_PLA_METADATA: dict[str, Any] = {
+    "filament_used_mm": [22.8, 0.0, 0.0, 0.0],
+    "filament_weight": [0.07, 0.0, 0.0, 0.0],
+    "filament_type": "PLA;ASA;PLA;PLA",
+    "filament_colour": "#E2DEDB;#000000;#E2DEDB;#FF8040",
+    "nozzle_temp": [230.0, 270.0, 220.0, 220.0],
+    "estimated_time": 26,
+    "first_layer_bed_temp": 45.0,
+    "chamber_temp": 0.0,
+    "layer_count": 1,
     "slicer": "SnapmakerOrca",
 }
 
@@ -55,7 +84,12 @@ class StandInPrinter:
     listing_raises: OSError | None = None
     history_raises: OSError | None = None
     offers_preferences: bool = True
-    started: list[tuple[str, bool | None, bool | None]] = field(default_factory=list)
+    loads: tuple[LoadedFilament, ...] = LOADED_ON_THE_PRINTER
+    loading_raises: OSError | None = None
+    # filename, level bed, record timelapse, and the slot to toolhead pairs it was given.
+    started: list[tuple[str, bool | None, bool | None, tuple[tuple[int, int], ...]]] = field(
+        default_factory=list
+    )
 
     def snapshot(self) -> PrinterSnapshot:
         return self.reports
@@ -75,12 +109,21 @@ class StandInPrinter:
             raise OSError(f"no metadata for {filename}")
         return self.describes
 
+    def loaded_filaments(self) -> tuple[LoadedFilament, ...]:
+        if self.loading_raises is not None:
+            raise self.loading_raises
+        return self.loads
+
     def supports_print_preferences(self) -> bool:
         return self.offers_preferences
 
     def start_print(
-        self, filename: str, level_bed: bool | None, record_timelapse: bool | None
+        self,
+        filename: str,
+        level_bed: bool | None,
+        record_timelapse: bool | None,
+        assignments: tuple[tuple[int, int], ...] = (),
     ) -> None:
         if self.refuses_start_with is not None:
             raise StartRefusedError(self.refuses_start_with)
-        self.started.append((filename, level_bed, record_timelapse))
+        self.started.append((filename, level_bed, record_timelapse, assignments))

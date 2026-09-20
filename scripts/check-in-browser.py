@@ -27,10 +27,17 @@ printer plugin.
 from __future__ import annotations
 
 import sys
-import tempfile
-import threading
-from pathlib import Path
-from typing import Any
+
+# Before importing the plugin. It lives under plugin/files/, which the builder packs verbatim,
+# and the daemon refuses a package holding a member the manifest's files[] does not list, so a
+# .pyc dropped here is a failed install. The gate sets this for its own runs; this harness runs
+# outside the gate and has to set it for itself.
+sys.dont_write_bytecode = True
+
+import tempfile  # noqa: E402  after the bytecode setting
+import threading  # noqa: E402
+from pathlib import Path  # noqa: E402
+from typing import Any  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(REPO_ROOT / "plugin" / "files" / "lib"))
@@ -50,7 +57,11 @@ except ModuleNotFoundError:  # pragma: no cover  the message is the point
         "    .venv/bin/python scripts/check-in-browser.py"
     )
 from print_scheduler import ScheduleService, ScheduleStore, build_server  # noqa: E402
-from printer_stand_in import FOUR_TOOL_METADATA, StandInPrinter  # noqa: E402
+from printer_stand_in import (  # noqa: E402
+    FOUR_TOOL_METADATA,
+    WHITE_PLA_METADATA,
+    StandInPrinter,
+)
 
 A_TIME_WELL_IN_THE_FUTURE = "2030-06-01T06:00"
 MULTI_TOOL_FILE = "04_XYZ_Cali_PLA_14m25s.gcode"
@@ -90,14 +101,17 @@ def check_the_page_before_anything_touches_it(page: Page) -> None:
 
 
 def check_choosing_a_file(page: Page, filename: str) -> None:
-    print("\nChoosing a single tool file")
+    print("\nChoosing a file")
     page.select_option("#file-choice", filename)
     page.wait_for_selector(".tool", timeout=PATIENCE_MILLISECONDS)
-    check("the tool it uses is shown", "T0" in text_of(page, "#file-facts"), True)
-    check("the material is shown", "ASA" in text_of(page, "#file-facts"), True)
-    # 2920 seconds, rounded to the minute the way the page rounds it.
-    check("the estimate is shown", "about 49m" in text_of(page, "#file-facts"), True)
-    check("the bed temperature is shown", "bed 100" in text_of(page, "#file-facts"), True)
+    facts = text_of(page, "#file-facts")
+    check("the slicer slot is shown, not a toolhead", "slot 0" in facts, True)
+    check("the material is shown", "PLA" in facts, True)
+    # The regression, visible on screen: slot 0 wants white PLA, which is on T2. The
+    # printer would default it to T0, where the ASA is.
+    check("the toolhead it chose is shown", "on T2" in facts, True)
+    check("the estimate is shown", "about 26s" in facts, True)
+    check("the bed temperature is shown", "bed 45" in facts, True)
     check("a file alone is not enough to schedule", page.is_disabled("#save"), True)
 
 
@@ -189,7 +203,7 @@ def report() -> int:
 
 
 def main() -> int:
-    printer = StandInPrinter()
+    printer = StandInPrinter(describes=dict(WHITE_PLA_METADATA))
     with tempfile.TemporaryDirectory() as scratch:
         base_url, server = serve(Path(scratch), printer)
         with sync_playwright() as playwright:

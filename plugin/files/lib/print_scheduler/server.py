@@ -32,7 +32,7 @@ from print_scheduler.service import (
 )
 
 SERVICE_NAME = "print-scheduler"
-SERVICE_VERSION = "0.1.0"
+SERVICE_VERSION = "0.1.1"
 
 JSON_CONTENT_TYPE = "application/json"
 # A schedule entry is a filename and a few flags. Anything larger is not one.
@@ -172,7 +172,11 @@ def serve_file_summary(handler: SchedulerRequestHandler) -> None:
     requested = handler.query().get("filename", [""])[0]
     if not requested:
         raise BadRequestError("name a file")
-    handler.respond_json(HTTPStatus.OK, handler.schedule().file_summary(requested).to_dict())
+    schedule = handler.schedule()
+    summary = schedule.file_summary(requested)
+    payload = summary.to_dict()
+    payload["plan"] = schedule.tool_plan(summary).to_dict()
+    handler.respond_json(HTTPStatus.OK, payload)
 
 
 def serve_printer(handler: SchedulerRequestHandler) -> None:

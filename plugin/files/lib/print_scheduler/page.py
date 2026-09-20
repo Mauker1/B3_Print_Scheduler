@@ -157,6 +157,8 @@ function whenLocal(epochSeconds) {
 
 function howLong(seconds) {
   if (!seconds) { return null; }
+  // A 26 second file exists on this printer, and "about 0m" helps nobody.
+  if (seconds < 60) { return Math.round(seconds) + "s"; }
   var hours = Math.floor(seconds / 3600);
   var minutes = Math.round((seconds % 3600) / 60);
   return hours ? (hours + "h " + minutes + "m") : (minutes + "m");
@@ -203,6 +205,30 @@ function renderPrinter() {
 
 // ---- the file you picked ----------------------------------------------------------------------
 
+// A file numbers its filaments by slicer slot; the printer numbers its hardware by
+// toolhead. They are not the same, and the first scheduled print on real hardware went
+// into ASA because slot 0 was assumed to mean toolhead 0.
+function assignmentFor(plan, slot) {
+  if (!plan || !plan.assignments) { return null; }
+  for (var index = 0; index < plan.assignments.length; index += 1) {
+    if (plan.assignments[index].slot === slot) { return plan.assignments[index]; }
+  }
+  return null;
+}
+
+function describeSlot(tool, plan) {
+  var assignment = assignmentFor(plan, tool.slot);
+  var text = "slot " + tool.slot + " " + (tool.filament_type || "filament");
+  if (tool.used_grams) { text += " " + tool.used_grams.toFixed(1) + " g"; }
+  return text + (assignment ? " on T" + assignment.toolhead : " (no toolhead)");
+}
+
+function mismatchedColours(plan) {
+  if (!plan || !plan.assignments) { return []; }
+  return plan.assignments.filter(function (one) { return one.colours_differ; })
+    .map(function (one) { return "T" + one.toolhead; });
+}
+
 function renderFileFacts() {
   var target = document.getElementById("file-facts");
   var summary = state.summary;
@@ -216,14 +242,12 @@ function renderFileFacts() {
       var swatch = element("span", "swatch");
       if (tool.colour) { swatch.style.background = tool.colour; }
       entry.appendChild(swatch);
-      entry.appendChild(element("span", null,
-        "T" + tool.index + " " + (tool.filament_type || "filament") +
-        (tool.used_grams ? " " + tool.used_grams.toFixed(1) + " g" : "")));
+      entry.appendChild(element("span", null, describeSlot(tool, summary.plan)));
       tools.appendChild(entry);
     });
     parts.push(tools);
   } else {
-    parts.push(element("p", "quiet", "This file does not say which tools it uses."));
+    parts.push(element("p", "quiet", "This file does not say what material it needs."));
   }
 
   var facts = [];
@@ -233,6 +257,15 @@ function renderFileFacts() {
   if (summary.chamber_temperature) { facts.push("chamber " + summary.chamber_temperature + "C"); }
   if (summary.layer_count) { facts.push(summary.layer_count + " layers"); }
   if (facts.length) { parts.push(element("p", "facts", facts.join(", "))); }
+
+  if (summary.plan && summary.plan.problem) {
+    parts.push(element("p", "stop", summary.plan.problem));
+  } else if (mismatchedColours(summary.plan).length) {
+    parts.push(element("p", "warn",
+      "The colour loaded is not the colour this file was sliced for on " +
+      mismatchedColours(summary.plan).join(", ") +
+      ". The material matches, so it will print; it will not be the colour on screen."));
+  }
 
   if (summary.tools.length > 1) {
     parts.push(element("p", "stop",

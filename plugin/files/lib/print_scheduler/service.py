@@ -26,9 +26,15 @@ from print_scheduler.jobs import (
     new_job_id,
     reason_filename_cannot_start,
 )
-from print_scheduler.printer import Printer, PrinterSnapshot, PrintRecord
+from print_scheduler.printer import (
+    LoadedFilament,
+    Printer,
+    PrinterSnapshot,
+    PrintRecord,
+)
 from print_scheduler.runner import cancel_by_hand, run_tick
 from print_scheduler.store import ScheduleStore
+from print_scheduler.tool_mapping import ToolPlan, plan_tools
 
 DEFAULT_TOLERANCE_MINUTES = 5.0
 SECONDS_PER_MINUTE = 60.0
@@ -182,6 +188,16 @@ class ScheduleService:
         except OSError:
             return False
 
+    def loaded_filaments(self) -> tuple[LoadedFilament, ...]:
+        try:
+            return self._printer.loaded_filaments()
+        except OSError:
+            return ()
+
+    def tool_plan(self, summary: FileSummary) -> ToolPlan:
+        """Which toolhead each of the file's slots would run on, as things stand now."""
+        return plan_tools(summary.tools, self.loaded_filaments())
+
     def file_summary(self, filename: str) -> FileSummary:
         return summarise(filename, self._printer.file_metadata(filename))
 
@@ -227,6 +243,11 @@ class ScheduleService:
 
     def _vet_the_file(self, filename: str) -> FileSummary:
         summary = self.file_summary(filename)
+        # Checked again when the job fires, which is the check that counts: a spool can be
+        # changed overnight. This one is so you find out now instead of at six.
+        plan = self.tool_plan(summary)
+        if plan.problem is not None:
+            raise ScheduleRejectedError(plan.problem)
         if len(summary.tools) > 1:
             raise ScheduleRejectedError(
                 f"{filename} uses {len(summary.tools)} toolheads. Starting a multi tool print "

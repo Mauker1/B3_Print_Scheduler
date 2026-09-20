@@ -30,6 +30,12 @@ UNCLEARED_BED_STATES = frozenset({"complete", "cancelled"})
 
 PRINT_STATE_ERROR = "error"
 
+# A gcode file numbers its filaments by slicer slot, and the printer numbers its hardware by
+# toolhead. They are not the same thing, and assuming they were printed PLA into a toolhead
+# loaded with ASA. The map between them is chosen at start time, by whoever starts the print.
+LOGICAL_SLOTS = 32
+PHYSICAL_TOOLHEADS = 4
+
 # print_stats states that mean the file we asked for is running now or just finished. A 26
 # second print can be over before the next tick, so `complete` is confirmation that the start
 # took, not evidence that it did not. This is only ever consulted for a job we started moments
@@ -40,6 +46,16 @@ STATES_MEANING_OUR_PRINT_RAN = frozenset({"printing", "paused", "complete"})
 
 class StartRefusedError(Exception):
     """The printer refused to start the print. The message is the printer's own."""
+
+
+@dataclass(frozen=True)
+class LoadedFilament:
+    """What is actually in one of the printer's toolheads right now."""
+
+    index: int
+    filament_type: str
+    colour: str
+    present: bool
 
 
 @dataclass(frozen=True)
@@ -90,12 +106,20 @@ class Printer(Protocol):
         """What the slicer wrote into one gcode file, as the printer reports it."""
         ...
 
+    def loaded_filaments(self) -> tuple[LoadedFilament, ...]:
+        """What is in each toolhead. Empty on a printer that does not track it."""
+        ...
+
     def supports_print_preferences(self) -> bool:
         """Whether this printer lets a job carry its own bed mesh and timelapse choices."""
         ...
 
     def start_print(
-        self, filename: str, level_bed: bool | None, record_timelapse: bool | None
+        self,
+        filename: str,
+        level_bed: bool | None,
+        record_timelapse: bool | None,
+        assignments: tuple[tuple[int, int], ...],
     ) -> None:
         """Start the print.
 

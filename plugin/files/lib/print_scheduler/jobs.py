@@ -55,6 +55,7 @@ class Refusal(str, Enum):
     FILENAME_NOT_STARTABLE = "filename-not-startable"
     START_REFUSED = "start-refused"
     START_DID_NOT_TAKE = "start-did-not-take"
+    NO_TOOLHEAD_FOR_THE_MATERIAL = "no-toolhead-for-the-material"
     CANCELLED_BY_YOU = "cancelled-by-you"
 
 
