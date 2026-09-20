@@ -84,6 +84,10 @@ class Job:
     bed_acknowledged: bool = False
     level_bed: bool | None = None
     record_timelapse: bool | None = None
+    # The slicer's estimate, taken once when the job was created. It is what the page uses
+    # to project a finish time and to warn about two jobs running into each other, so it is
+    # kept rather than looked up: a listing should not need one metadata read per job.
+    estimated_seconds: float = 0.0
     state: JobState = JobState.SCHEDULED
     refusal: Refusal | None = None
     detail: str = ""
@@ -106,6 +110,7 @@ class Job:
             "bed_acknowledged": self.bed_acknowledged,
             "level_bed": self.level_bed,
             "record_timelapse": self.record_timelapse,
+            "estimated_seconds": self.estimated_seconds,
             "state": self.state.value,
             "refusal": None if self.refusal is None else self.refusal.value,
             "detail": self.detail,
@@ -127,6 +132,7 @@ def job_from_dict(payload: dict[str, Any]) -> Job:
         bed_acknowledged=bool(payload.get("bed_acknowledged", False)),
         level_bed=payload.get("level_bed"),
         record_timelapse=payload.get("record_timelapse"),
+        estimated_seconds=float(payload.get("estimated_seconds", 0.0)),
         state=JobState(payload.get("state", JobState.SCHEDULED.value)),
         refusal=None if refusal is None else Refusal(refusal),
         detail=str(payload.get("detail", "")),

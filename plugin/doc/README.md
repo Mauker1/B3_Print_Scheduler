@@ -11,15 +11,20 @@ it for you at that time.
 Most slicers can upload a file without printing it. This plugin is the other half: it decides when
 that file runs. Upload in the evening, print at six, without getting up to press start.
 
-## What works today
+## How it works
 
-The plugin installs, starts, and serves its page at **Print scheduler** in the Bespok3d app, or at
-`/print-scheduler/` on the printer's own web address. Scheduling is not built yet. The page shows an
-empty list because there is nothing to list.
+Open **Print scheduler** in the Bespok3d app, or `/print-scheduler/` on the printer's own web
+address. Pick a file the printer already has, pick when it should start, promise the bed will be
+clear, and it is scheduled. A job that has not fired yet can be edited or cancelled, and any job
+can be used as the starting point for another.
 
-Everything below describes how the scheduler behaves once it starts a job, and it is written down
-first on purpose: the rules are the feature, and changing one is a change to what the printer will
-do while nobody is watching.
+Picking a file shows what it will use: which toolheads, which material and colour in each, how
+long the slicer thinks it will take, and what it will heat the bed to. If an earlier job is
+projected to still be printing when this one is due, the page says so while you are still looking
+at it, rather than letting it become a cancellation at six in the morning.
+
+The page needs JavaScript. It is a printer's web interface, and so is everything else on the
+machine.
 
 ## The rules it applies before starting anything
 
@@ -121,6 +126,4 @@ is busy is never waited for, whatever this is set to.
 - **Multi tool files.** On a tool changer the printer needs a tool assignment that this plugin does
   not yet know how to make, and making it wrong wastes the whole print. Those files are refused at
   schedule time, with the reason shown.
-- **Print preferences.** On printers that expose them, a bed mesh or a timelapse can be chosen per
-  job. That is coming, and until it lands a scheduled print inherits whatever the printer was last
-  told.
+- **Thumbnails.** The file picker shows filament colours rather than a preview of the model.

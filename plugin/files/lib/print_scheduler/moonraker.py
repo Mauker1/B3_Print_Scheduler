@@ -124,6 +124,11 @@ class MoonrakerPrinter:
         result = self._get_result(f"/server/history/list?limit={HISTORY_LIMIT}")
         return print_records_from_history(result["jobs"])
 
+    def file_metadata(self, filename: str) -> dict[str, Any]:
+        """What the slicer wrote into one gcode file, as Moonraker reports it."""
+        metadata = self._get_result(f"/server/files/metadata?filename={quote(filename)}")
+        return dict(metadata)
+
     def supports_print_preferences(self) -> bool:
         """Whether this printer offers the parameterised start command. Asked once, then kept."""
         if self._parameterised_start is None:

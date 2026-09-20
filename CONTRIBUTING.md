@@ -155,6 +155,39 @@ Three kinds of test carry most of the weight here.
 A fix ships with a regression test in the same change: one that fails on the old behaviour and passes on
 the new.
 
+## Checking the page in a browser
+
+The gate covers the plugin's Python. It cannot cover whether a button does anything, and in a
+sibling plugin that gap shipped two bugs that every server-side test passed.
+
+```sh
+pip install playwright && playwright install chromium
+python3 scripts/check-in-browser.py
+```
+
+Most managed Python installations now refuse to install into themselves, so if that first line is
+rejected, put it in a virtualenv instead. `.venv` at the repo root is already ignored:
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install playwright
+.venv/bin/playwright install chromium
+.venv/bin/python scripts/check-in-browser.py
+```
+
+It serves the real page against a stand-in printer and drives it in headless Chromium: that the
+file list, the tool display and the estimate are on screen before anything is clicked, that
+scheduling is refused until a file, a time and the promise about the bed are all there, that
+scheduling and cancelling actually change the lists, and that a multi tool file explains itself
+and stays refused. It fails on a console error too.
+
+Run it after touching the page. Nothing runs it for you, and it is not in the gate because a
+browser download is a lot to ask of someone working on a printer plugin. The two rules it taught a
+sibling plugin are in the suite instead, as cheap assertions on the rendered HTML: no form control
+may share a name with a property of HTMLFormElement, and the page may not emit an absolute path.
+That second one cannot be checked by this harness, which serves the page at the root where a
+relative URL and an absolute one both happen to work.
+
 ## Building locally
 
 The builder is installed into its own prefix. Do not use `npx b3-builder`: it resolves to whatever copy

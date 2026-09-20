@@ -34,6 +34,10 @@ b3d_python_tools
 run_check "ruff"   ruff_in_dir "$PLUGIN_DIR" files tests
 run_check "mypy"   mypy_in_dir "$PLUGIN_DIR" files/lib/print_scheduler tests
 run_check "pytest" pytest_in_dir "$PLUGIN_DIR" tests
+# The browser harness is ours too, so it is linted. It is not type checked or run here: it
+# imports playwright, which is not in the shared tool venv and is not a dependency of this
+# repo. CONTRIBUTING.md says when to run it.
+run_check "ruff (scripts)" ruff_in_dir "$REPO_ROOT" scripts
 
 release_trigger_check "$REPO_ROOT"
 manifest_origin_check "$REPO_ROOT"

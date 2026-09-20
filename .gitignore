@@ -232,6 +232,14 @@ __marimo__/
 !plugin/files/wheels/
 !plugin/files/wheels/**
 
+# The two negations above re-include EVERYTHING under those directories, and git takes the last
+# matching pattern, so they also undid the template's own cache rules. Restate them here, after the
+# negations, so they win again. A .pyc inside plugin/files/ is not untidiness: the builder packs
+# files/ verbatim, gitignore or not, and the daemon refuses a package holding a member the
+# manifest's files[] does not list, so it is a failed install.
+__pycache__/
+*.py[codz]
+
 # Superseded files awaiting review, per CLAUDE.md. Never committed.
 _trash/
 

@@ -12,7 +12,7 @@ that came due while the printer was off, and a job that came due while the print
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 
 import print_scheduler
 from print_scheduler import (
@@ -21,57 +21,15 @@ from print_scheduler import (
     PrinterSnapshot,
     PrintRecord,
     Refusal,
-    StartRefusedError,
     cancel_by_hand,
     run_tick,
 )
+from printer_stand_in import BENCHY, CHINESE_NAME, IDLE, PRINTING_OURS, StandInPrinter
 
 SIX_IN_THE_MORNING = 1_758_348_000.0
 ONE_MINUTE = 60.0
 FIVE_MINUTES = 5 * ONE_MINUTE
 TEN_HOURS = 10 * 60 * ONE_MINUTE
-
-BENCHY = "3DBenchy_ASA_HF_48m40s.gcode"
-CHINESE_NAME = "顶盖前靴_TPU_13m5s.gcode"
-
-IDLE = PrinterSnapshot(reachable=True, klipper_state="ready", print_state="standby")
-
-
-@dataclass
-class StandInPrinter:
-    """A printer described as data.
-
-    An entry is a state to report or, for the start call, an error to raise, so a test can describe
-    a printer that is busy, or one that refuses a start, as plainly as one that works.
-    """
-
-    reports: PrinterSnapshot = IDLE
-    holds: frozenset[str] = frozenset({BENCHY, CHINESE_NAME})
-    refuses_start_with: str | None = None
-    listing_raises: OSError | None = None
-    remembers: tuple[PrintRecord, ...] = ()
-    history_raises: OSError | None = None
-    started: list[tuple[str, bool | None, bool | None]] = field(default_factory=list)
-
-    def snapshot(self) -> PrinterSnapshot:
-        return self.reports
-
-    def recent_prints(self) -> tuple[PrintRecord, ...]:
-        if self.history_raises is not None:
-            raise self.history_raises
-        return self.remembers
-
-    def gcode_filenames(self) -> frozenset[str]:
-        if self.listing_raises is not None:
-            raise self.listing_raises
-        return self.holds
-
-    def start_print(
-        self, filename: str, level_bed: bool | None, record_timelapse: bool | None
-    ) -> None:
-        if self.refuses_start_with is not None:
-            raise StartRefusedError(self.refuses_start_with)
-        self.started.append((filename, level_bed, record_timelapse))
 
 
 def a_job(**overrides: object) -> Job:
@@ -294,9 +252,6 @@ def test_the_tick_returns_the_whole_schedule_including_jobs_it_did_not_touch() -
     settled = run_tick([due, later], printer, SIX_IN_THE_MORNING, FIVE_MINUTES)
     assert [job.job_id for job in settled] == ["due", "later"]
     assert settled[1] == later
-
-
-PRINTING_OURS = replace(IDLE, print_state="printing", printing_filename=BENCHY)
 
 
 def a_starting_job(**overrides: object) -> Job:

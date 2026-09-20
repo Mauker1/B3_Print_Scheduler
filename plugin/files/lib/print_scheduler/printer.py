@@ -10,7 +10,7 @@ tests need a printer, a socket or a clock.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 KLIPPER_READY = "ready"
 
@@ -84,6 +84,14 @@ class Printer(Protocol):
 
     def recent_prints(self) -> tuple[PrintRecord, ...]:
         """The printer's own recent job history, newest first."""
+        ...
+
+    def file_metadata(self, filename: str) -> dict[str, Any]:
+        """What the slicer wrote into one gcode file, as the printer reports it."""
+        ...
+
+    def supports_print_preferences(self) -> bool:
+        """Whether this printer lets a job carry its own bed mesh and timelapse choices."""
         ...
 
     def start_print(

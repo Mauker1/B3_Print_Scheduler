@@ -134,7 +134,14 @@ def test_the_advertised_endpoint_is_a_location_nginx_publishes() -> None:
 
 
 def test_nginx_publishes_no_exact_path_the_service_does_not_serve() -> None:
-    assert nginx_exact_service_paths() <= set(print_scheduler.GET_ROUTES)
+    served = set(print_scheduler.GET_ROUTES) | set(print_scheduler.POST_ROUTES)
+    assert nginx_exact_service_paths() <= served
+
+
+def test_every_endpoint_that_changes_the_schedule_is_behind_the_subrequest() -> None:
+    # The page itself is not, on purpose. Everything that reads or writes the schedule is.
+    for path in print_scheduler.POST_ROUTES:
+        assert "auth_request" in nginx_block(f"= {ENDPOINT_PATH.rstrip('/')}{path}"), path
 
 
 def test_the_schedule_endpoint_is_behind_the_authentication_subrequest() -> None:
