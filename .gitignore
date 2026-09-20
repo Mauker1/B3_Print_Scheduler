@@ -216,3 +216,30 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# print-scheduler additions to the standard Python template above.
+# ---------------------------------------------------------------------------
+
+# The template's `lib/` rule matches plugin/files/lib/, which is the entire
+# plugin. Re-include it. This has silently swallowed a plugin before.
+!plugin/files/lib/
+!plugin/files/lib/**
+
+# The template's `wheels/` rule would do the same to baked arm64 wheels. This
+# plugin has no Python dependencies today, so nothing lands there; the rule is
+# here so that adding one later does not fail in a confusing way.
+!plugin/files/wheels/
+!plugin/files/wheels/**
+
+# Superseded files awaiting review, per CLAUDE.md. Never committed.
+_trash/
+
+# Internal working notes: handovers, scratch design docs, anything for us
+# rather than for a user or a contributor. Never committed, never shipped.
+notes/
+
+# macOS. A stray .DS_Store inside plugin/ is a failed install, not a cosmetic
+# problem: the daemon refuses a package holding an archive member that the
+# manifest's files[] does not list.
+.DS_Store
