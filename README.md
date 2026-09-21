@@ -19,8 +19,22 @@ ships as a signed `.b3` package that the Bespok3d desktop app installs onto the 
 
 ## Status
 
-Early. The manifest, the nginx location, the gate and the test layer are in place, and the plugin
-installs and serves its page. Scheduling itself is not built yet.
+Working, and proven on hardware. It schedules a print, starts it at the time you chose, and says
+what became of it. It measures how long your own printer spends getting ready rather than
+guessing, separately for prints that level the bed and prints that do not, so the finish time it
+projects is your printer's rather than a number somebody wrote down. Multi tool files are matched
+to the toolheads by colour and material, and refused up front when the machine cannot run them.
+
+Tested against a Snapmaker U1 running Klipper and Moonraker, and against an Ender 2 Pro Max
+running mainline Klipper, Moonraker and Mainsail. Nothing in it is specific to either.
+
+### What uninstalling does, and does not do
+
+Uninstalling removes the plugin, its settings and its web location. **It does not cancel prints
+you have already scheduled.** The schedule lives in a data directory, which the Bespok3d daemon
+preserves across an uninstall by design so that plugins do not throw away your data, and a
+reinstall picks it up again. If you want a scheduled print gone, cancel it in the plugin before
+uninstalling.
 
 ## Layout
 
