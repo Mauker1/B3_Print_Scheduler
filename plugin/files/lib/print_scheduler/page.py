@@ -153,7 +153,7 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 var CLOCK_SKEW_TOLERANCE_SECONDS = 120;
 var REFRESH_MILLISECONDS = 10000;
 
-var state = { jobs: [], printer: null, summary: null, editing: null, setup: null,
+var state = { jobs: [], printer: null, summary: null, editing: null,
               files: [], chosen: "", armedToClear: false };
 // A long list is slow to build and pointless to read. Past this, search is the way in.
 var MOST_FILES_TO_DRAW = 40;
@@ -404,19 +404,34 @@ function jobHeadline(job) {
   return "Did not run. " + (job.detail || "");
 }
 
+// What this job asked the printer for. Invisible once a job was scheduled until now, and
+// worth seeing: levelling is most of the difference between a two minute setup and a ten
+// minute one, so this is the reason two rows can carry very different times.
+function describeChoices(job) {
+  var parts = [];
+  if (job.level_bed === true) { parts.push("levelling"); }
+  else if (job.level_bed === false) { parts.push("no levelling"); }
+  if (job.record_timelapse === true) { parts.push("timelapse"); }
+  else if (job.record_timelapse === false) { parts.push("no timelapse"); }
+  return parts.length ? parts.join(", ") : null;
+}
+
 function renderJob(job) {
   var card = element("div", "job");
   card.appendChild(element("div", "job-title", job.filename));
   card.appendChild(element("div", "quiet", jobHeadline(job)));
 
+  var choices = describeChoices(job);
+  if (choices) { card.appendChild(element("div", "quiet", choices)); }
+
   if (job.state === "scheduled" && job.projected_finish) {
     var printing = howLong(job.estimated_seconds);
-    var setup = describeSetup(state.setup);
+    var setup = describeSetup(job.setup);
     if (setup && printing) {
       card.appendChild(element("div", "facts",
         "about " + setup + " of setup, then " + printing + " of printing"));
     }
-    card.appendChild(element("div", "facts", describeFinish(job, state.setup)));
+    card.appendChild(element("div", "facts", describeFinish(job, job.setup)));
   }
   if (job.overlaps_with) {
     card.appendChild(element("p", "warn",
@@ -607,7 +622,6 @@ function cancelJob(job) {
 function loadJobs() {
   return api("./jobs").then(function (payload) {
     state.jobs = payload.jobs || [];
-    state.setup = payload.setup || null;
     renderJobs();
   }).catch(function (problem) {
     replaceChildren(document.getElementById("pending"), [element("p", "stop", problem.message)]);

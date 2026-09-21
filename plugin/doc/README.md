@@ -84,6 +84,17 @@ of:
 > about 3m to 10m of setup, then 26s of printing
 > should finish between 6:03:55 and 6:10:24
 
+**Each job is measured against prints like itself.** Levelling costs about six and a half
+minutes on the printer this was written against, so a job that asks for it and a job that does
+not have nothing to learn from each other's timings. Where there are at least three prints of
+the relevant kind, that job is projected from those; otherwise from everything. Which is why two
+jobs scheduled on the same page can honestly carry very different numbers, and why each row says
+what it asked the printer for.
+
+Only prints this scheduler started carry that label, because the printer's history records what
+ran and never what it was asked for. Prints you started by hand still count towards the general
+figure. They simply cannot be sorted into one pile or the other.
+
 **Why a range and not a time.** On the printer this was written against, setup time does not
 have a middle. It arrives in two clusters, one around two or three minutes and one around ten,
 and what decides which is not yet understood. A median between them is a value almost no print
@@ -231,7 +242,9 @@ is busy is never waited for, whatever this is set to.
 
 **Finished jobs to keep** (default 25). The settled list is trimmed to this many, newest first,
 whenever the schedule changes. Jobs that have not run yet are never trimmed. Zero keeps nothing
-once a job has settled.
+once a job has settled, and is worth one caveat: those records are also what tells a levelled
+print's setup time from an unlevelled one, so keeping none of them projects every job from a
+single figure again.
 
 ## What has been tested, and where
 

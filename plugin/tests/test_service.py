@@ -22,6 +22,8 @@ from print_scheduler import (
     ScheduleRejectedError,
     ScheduleService,
     ScheduleStore,
+    SetupTime,
+    SetupTimes,
     overlapping_job_ids,
     payload_for,
     projected_finish,
@@ -271,7 +273,8 @@ def test_the_overlap_warning_uses_the_same_setup_time(tmp_path: Path) -> None:
         a_request(start_at=SIX_IN_THE_MORNING + BENCHY_SECONDS + 60), LAST_NIGHT
     )
     assert overlapping_job_ids(service.jobs()) == {}
-    assert overlapping_job_ids(service.jobs(), SETUP_SECONDS) == {second.job_id: first.job_id}
+    measured = SetupTimes(overall=SetupTime(SETUP_SECONDS, SETUP_SECONDS, SETUP_SECONDS))
+    assert overlapping_job_ids(service.jobs(), measured) == {second.job_id: first.job_id}
 
 
 def test_the_page_is_told_the_setup_time_and_gets_it_off_one_reading(tmp_path: Path) -> None:
@@ -279,10 +282,11 @@ def test_the_page_is_told_the_setup_time_and_gets_it_off_one_reading(tmp_path: P
     service = a_service(tmp_path, printer)
     service.add(a_request(), LAST_NIGHT)
     payload = service.schedule_payload()
-    assert payload["setup"] is not None
-    assert round(payload["setup"]["typical"], 2) == SETUP_SECONDS
+    setup = payload["jobs"][0]["setup"]
+    assert setup is not None
+    assert round(setup["typical"], 2) == SETUP_SECONDS
     assert payload["jobs"][0]["projected_finish"] == (
-        SIX_IN_THE_MORNING + payload["setup"]["typical"] + BENCHY_SECONDS
+        SIX_IN_THE_MORNING + setup["typical"] + BENCHY_SECONDS
     )
 
 
@@ -337,7 +341,7 @@ def test_a_printer_that_cannot_be_reached_still_renders_the_schedule(tmp_path: P
     service = a_service(tmp_path, printer)
     service.add(a_request(), LAST_NIGHT)
     payload = service.schedule_payload()
-    assert payload["setup"] is None
+    assert payload["jobs"][0]["setup"] is None
     assert payload["jobs"][0]["projected_finish"] == SIX_IN_THE_MORNING + BENCHY_SECONDS
 
 
@@ -423,3 +427,66 @@ def test_clearing_the_settled_list_leaves_everything_scheduled_alone(tmp_path: P
     pending = service.add(a_request(start_at=SIX_IN_THE_MORNING + 7200), LAST_NIGHT)
     assert service.forget_every_settled_job() == 1
     assert [job.job_id for job in service.jobs()] == [pending.job_id]
+
+
+def a_print_we_started(number: int, levelled: bool) -> Job:
+    """One of our own jobs that already ran, which is what carries a levelling label."""
+    kind = "L" if levelled else "U"
+    return Job(
+        job_id=f"ours-{kind}{number}",
+        filename=BENCHY,
+        start_at=LAST_NIGHT,
+        state=JobState.STARTED,
+        decided_at=LAST_NIGHT,
+        printer_job_id=f"{kind}{number}",
+        level_bed=levelled,
+        bed_acknowledged=True,
+    )
+
+
+def a_printer_that_ran(number: int, levelled: bool) -> PrintRecord:
+    kind = "L" if levelled else "U"
+    total = 638.67 if levelled else 249.83
+    return replace(
+        a_finished_print(), job_id=f"{kind}{number}", total_duration=total, print_duration=40.03
+    )
+
+
+def test_two_jobs_with_different_levelling_carry_different_projections(
+    tmp_path: Path,
+) -> None:
+    """The feature, end to end through the payload the page actually reads."""
+    ours = [a_print_we_started(n, True) for n in range(3)]
+    ours += [a_print_we_started(n, False) for n in range(3)]
+    theirs = tuple(a_printer_that_ran(n, True) for n in range(3))
+    theirs += tuple(a_printer_that_ran(n, False) for n in range(3))
+    ScheduleStore(tmp_path / "jobs.json").save(ours)
+
+    service = a_service(tmp_path, StandInPrinter(remembers=theirs))
+    levelling = service.add(a_request(level_bed=True), LAST_NIGHT)
+    plain = service.add(
+        a_request(start_at=SIX_IN_THE_MORNING + 3600, level_bed=False), LAST_NIGHT
+    )
+    entries = {one["job_id"]: one for one in service.schedule_payload()["jobs"]}
+    assert round(entries[levelling.job_id]["setup"]["typical"], 1) == 598.6
+    assert round(entries[plain.job_id]["setup"]["typical"], 1) == 209.8
+    # And the finish each one projects moves with it, which is the part a person sees.
+    assert entries[levelling.job_id]["projected_finish"] > (
+        entries[plain.job_id]["projected_finish"] - 3600
+    )
+
+
+def test_keeping_no_settled_jobs_takes_the_labels_with_it(tmp_path: Path) -> None:
+    # Worth knowing rather than discovering: the labels live on our settled jobs, so keeping
+    # none of them means every job is projected from one figure again.
+    ours = [a_print_we_started(n, True) for n in range(3)]
+    theirs = tuple(a_printer_that_ran(n, True) for n in range(3))
+    ScheduleStore(tmp_path / "jobs.json").save(ours)
+    service = a_service(tmp_path, StandInPrinter(remembers=theirs))
+    assert service.schedule_payload()["setup"]["levelled"] is not None
+
+    (tmp_path / "user_vars.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": 0}))
+    ScheduleStore(tmp_path / "jobs.json").save(ours)
+    forgetful = a_service(tmp_path, StandInPrinter(remembers=theirs))
+    forgetful.add(a_request(), LAST_NIGHT)
+    assert forgetful.schedule_payload()["setup"]["levelled"] is None

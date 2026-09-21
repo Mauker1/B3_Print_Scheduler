@@ -16,6 +16,7 @@ from print_scheduler import (
     PrintRecord,
     find_our_print,
     last_print_ended_at,
+    measure_setup_times,
     measure_start_routine,
     verdict_for,
 )
@@ -194,3 +195,51 @@ def test_history_older_than_the_last_ten_finished_prints_is_left_out() -> None:
     measured = measure_start_routine([*recent, *ancient])
     assert measured is not None
     assert round(measured.typical, 2) == 598.64
+
+
+def levelled(job_id: str, **run: object) -> PrintRecord:
+    return a_record(job_id=job_id, **run)
+
+
+def test_a_job_is_measured_against_prints_that_made_the_same_choice() -> None:
+    # The whole point. Levelling costs about 394 seconds on this printer, so a job that asked
+    # for it and a job that did not should not be projected from the same average of both.
+    records = [levelled(f"L{n}", **SECOND_RUN) for n in range(3)]
+    records += [levelled(f"U{n}", **{"total_duration": 249.8, "print_duration": 40.0})
+                for n in range(3)]
+    which = {f"L{n}": True for n in range(3)}
+    which.update({f"U{n}": False for n in range(3)})
+    measured = measure_setup_times(records, which)
+    assert measured.levelled is not None
+    assert measured.unlevelled is not None
+    assert round(measured.levelled.typical, 1) == 598.6
+    assert round(measured.unlevelled.typical, 1) == 209.8
+    assert measured.for_choice(True) is measured.levelled
+    assert measured.for_choice(False) is measured.unlevelled
+
+
+def test_one_or_two_prints_of_a_kind_are_not_enough_to_tell_them_apart() -> None:
+    # One sample would collapse the range to a single number and the page would state a
+    # confident time from a single print, which is what the range exists to prevent.
+    records = [levelled("L0", **SECOND_RUN), levelled("U0", **FIRST_RUN)]
+    measured = measure_setup_times(records, {"L0": True, "U0": False})
+    assert measured.levelled is None
+    assert measured.unlevelled is None
+    assert measured.overall is not None
+    assert measured.for_choice(True) is measured.overall
+
+
+def test_a_printer_that_does_not_offer_the_choice_gets_the_general_figure() -> None:
+    records = [levelled(f"x{n}", **SECOND_RUN) for n in range(4)]
+    measured = measure_setup_times(records, {})
+    assert measured.for_choice(None) is measured.overall
+    assert measured.overall is not None
+
+
+def test_prints_nobody_labelled_still_count_towards_the_general_figure() -> None:
+    # Prints started by hand carry no label, because the printer records what ran and never
+    # what it was asked for. They are not lost, they are just not partitioned.
+    records = [levelled(f"hand{n}", **SECOND_RUN) for n in range(5)]
+    measured = measure_setup_times(records, {})
+    assert measured.overall is not None
+    assert measured.levelled is None

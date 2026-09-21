@@ -215,6 +215,7 @@ def check_scheduling(page: Page) -> None:
     check("it projects a finish", "should finish" in pending, True)
     check("it names the setup time", "of setup, then" in pending, True)
     check("and quotes it as a range when the printer varies", "3m to 10m" in pending, True)
+    check("the job says what it asked the printer for", "levelling, timelapse" in pending, True)
     check("the finish is a range too", "should finish between" in pending, True)
     check(
         "and does not warn about a setup time it knows",

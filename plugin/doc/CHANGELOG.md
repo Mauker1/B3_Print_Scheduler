@@ -5,6 +5,30 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.11 (in development)
+
+- **A job is projected against prints that made the same levelling choice.** Levelling costs
+  about six and a half minutes on the machine this was measured on, which is most of the
+  difference between a two minute setup and a ten minute one, and averaging the two produced a
+  number almost no print was near. A job that asks for levelling is now measured against prints
+  that levelled, and one that does not against prints that did not.
+- The labels come from this scheduler's own settled jobs joined to the printer's history,
+  because **the printer records what ran and never what it was asked for**. Prints started by
+  hand carry no label; they still count towards the general figure, they are just not
+  partitioned. A printer that does not offer the choice at all keeps the general figure, which
+  is correct rather than unfortunate.
+- **Three prints of a kind before that kind is measured on its own.** One sample would collapse
+  the range to a single number and the page would state a confident time from a single print,
+  which is the overconfidence the range was built to remove. Below that it falls back to the
+  general figure, so a fresh install behaves exactly as it did.
+- **A scheduled job now shows what it asked the printer for**, levelling and timelapse, which
+  was invisible once a job was scheduled. It is also the reason two rows can carry very
+  different setup times, and a reader should not have to work that out.
+- The overlap warning now assumes the slowest setup **of the earlier job's own kind** rather
+  than the slowest of any kind.
+- *Finished jobs to keep* now says in its own hint that those records are what carries the
+  levelling labels, so setting it to 0 projects every job from one figure again.
+
 ## 0.1.10 (in development)
 
 - **Settled jobs can be removed, one at a time or all at once.** Clear the list means clear

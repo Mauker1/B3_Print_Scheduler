@@ -18,9 +18,10 @@ answer and nobody else's, which is why it is measured here rather than written d
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from statistics import median
+from typing import Any
 
 from print_scheduler.jobs import Job
 from print_scheduler.printer import PrintRecord
@@ -43,6 +44,10 @@ PRINTS_WORTH_MEASURING = 10
 # that sat paused widens nothing. Below it there is nothing to trim: throwing away two of three
 # samples would leave a range of one number pretending to be a range.
 TRIM_THE_ENDS_FROM = 5
+
+# How many prints of one kind before that kind is measured on its own rather than lumped in
+# with the other. Three is not many; one would be a single print stated as a fact.
+ENOUGH_TO_TELL_THEM_APART = 3
 
 
 def find_our_print(job: Job, records: Sequence[PrintRecord]) -> PrintRecord | None:
@@ -110,16 +115,84 @@ def measure_start_routine(records: Sequence[PrintRecord]) -> SetupTime | None:
     """
     # Newest first, as the printer lists them, so the window is the last few finished prints
     # rather than the last few entries, which on a bad morning are all cancellations.
+    usable = usable_gaps(records)
+    if not usable:
+        return None
+    kept = usable[1:-1] if len(usable) >= TRIM_THE_ENDS_FROM else usable
+    return SetupTime(typical=median(kept), shortest=kept[0], longest=kept[-1])
+
+
+def usable_gaps(records: Sequence[PrintRecord]) -> list[float]:
+    """What the most recent finished prints spent not printing, smallest first."""
+    # Newest first, as the printer lists them, so the window is the last few finished prints
+    # rather than the last few entries, which on a bad morning are all cancellations.
     measured = [
         record.total_duration - record.print_duration
         for record in records
         if record.status == FINISHED and record.print_duration > 0 and record.total_duration > 0
     ]
-    usable = sorted(gap for gap in measured[:PRINTS_WORTH_MEASURING] if gap > 0)
-    if not usable:
+    return sorted(gap for gap in measured[:PRINTS_WORTH_MEASURING] if gap > 0)
+
+
+@dataclass(frozen=True)
+class SetupTimes:
+    """The setup time overall, and separately for prints that levelled and prints that did not.
+
+    Levelling costs about six and a half minutes on the machine this was measured on, which is
+    most of the difference between a two minute setup and a ten minute one. A job knows whether
+    it asked for levelling, so it can be projected against prints that made the same choice
+    rather than against an average of two habits it is not going to have.
+    """
+
+    overall: SetupTime | None = None
+    levelled: SetupTime | None = None
+    unlevelled: SetupTime | None = None
+
+    def for_choice(self, level_bed: bool | None) -> SetupTime | None:
+        """The measurement that fits this job, or the general one when none does."""
+        if level_bed is True and self.levelled is not None:
+            return self.levelled
+        if level_bed is False and self.unlevelled is not None:
+            return self.unlevelled
+        return self.overall
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "overall": None if self.overall is None else self.overall.to_dict(),
+            "levelled": None if self.levelled is None else self.levelled.to_dict(),
+            "unlevelled": None if self.unlevelled is None else self.unlevelled.to_dict(),
+        }
+
+
+def measure_setup_times(
+    records: Sequence[PrintRecord], levelling: Mapping[str, bool]
+) -> SetupTimes:
+    """Measure the start routine overall, and by levelling choice where we know it.
+
+    Only prints this scheduler started carry a levelling label, because only then did anyone
+    record the choice: the printer's history says what ran, never what it was asked for. So a
+    person who mostly presses print by hand keeps the general figure, which is correct rather
+    than unfortunate.
+    """
+    return SetupTimes(
+        overall=measure_start_routine(records),
+        levelled=_measured_if_there_are_enough(records, levelling, wanted=True),
+        unlevelled=_measured_if_there_are_enough(records, levelling, wanted=False),
+    )
+
+
+def _measured_if_there_are_enough(
+    records: Sequence[PrintRecord], levelling: Mapping[str, bool], wanted: bool
+) -> SetupTime | None:
+    """Below a handful of prints, a partition is a rumour rather than a measurement.
+
+    One sample would collapse the range to a single number and the page would quote a
+    confident time from a single print, which is the overconfidence the range exists to avoid.
+    """
+    matching = [record for record in records if levelling.get(record.job_id) is wanted]
+    if len(usable_gaps(matching)) < ENOUGH_TO_TELL_THEM_APART:
         return None
-    kept = usable[1:-1] if len(usable) >= TRIM_THE_ENDS_FROM else usable
-    return SetupTime(typical=median(kept), shortest=kept[0], longest=kept[-1])
+    return measure_start_routine(matching)
 
 
 def verdict_for(job: Job, records: Sequence[PrintRecord]) -> PrintRecord | None:

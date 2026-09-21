@@ -1,7 +1,7 @@
 {
   "name": "print-scheduler",
   "title": "Print Scheduler",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Pick a sliced file that is already on the printer, pick when it should start, and the printer starts it for you at that time.\n\nThe scheduler refuses far more often than it starts. It will not start a job on a printer that is not idle, it will not start a job whose time has already passed, and it records a reason for every job it did not start. It cannot see the bed, so the person scheduling a job is the one promising the bed will be clear.",
   "tagline": "Start a print at a time you choose.",
   "category": "printing",
@@ -50,7 +50,7 @@
       "type": "number",
       "placeholder": "25",
       "default": 25,
-      "hint": "The list of settled jobs is trimmed to this many, newest first, so it does not grow forever. Jobs that have not run yet are never dropped. Set it to 0 to keep nothing once a job has settled.",
+      "hint": "The list of settled jobs is trimmed to this many, newest first, so it does not grow forever. Jobs that have not run yet are never dropped. These records are also what lets the scheduler tell a levelled print's setup time from an unlevelled one, so setting this to 0 keeps nothing and projects every job from one figure.",
       "required": false,
       "userEditable": true
     }

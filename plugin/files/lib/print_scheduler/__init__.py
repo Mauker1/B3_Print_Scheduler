@@ -20,8 +20,10 @@ from print_scheduler.gcode_files import (
 )
 from print_scheduler.history import (
     SetupTime,
+    SetupTimes,
     find_our_print,
     last_print_ended_at,
+    measure_setup_times,
     measure_start_routine,
     verdict_for,
 )
@@ -124,6 +126,7 @@ __all__ = [
     "ScheduleService",
     "ScheduleStore",
     "SetupTime",
+    "SetupTimes",
     "SchedulerRequestHandler",
     "SchedulerServer",
     "StartRefusedError",
@@ -157,6 +160,7 @@ __all__ = [
     "render_schedule_page",
     "run_tick",
     "snapshot_from_status",
+    "measure_setup_times",
     "measure_start_routine",
     "split_slicer_list",
     "summarise",

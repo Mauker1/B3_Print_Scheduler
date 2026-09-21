@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from print_scheduler.gcode_files import FileRow, FileSummary, file_rows, summarise
-from print_scheduler.history import SetupTime, measure_start_routine, verdict_for
+from print_scheduler.history import SetupTimes, measure_setup_times, verdict_for
 from print_scheduler.jobs import (
     Job,
     JobState,
@@ -125,7 +125,12 @@ def projected_finish(job: Job, setup_seconds: float | None = None) -> float | No
     return job.start_at + (setup_seconds or 0.0) + job.estimated_seconds
 
 
-def overlapping_job_ids(jobs: Sequence[Job], setup_seconds: float | None = None) -> dict[str, str]:
+def _slowest_setup_for(job: Job, setups: SetupTimes | None) -> float | None:
+    measured = None if setups is None else setups.for_choice(job.level_bed)
+    return None if measured is None else measured.longest
+
+
+def overlapping_job_ids(jobs: Sequence[Job], setups: SetupTimes | None = None) -> dict[str, str]:
     """Pending jobs that would start before an earlier pending job is projected to finish.
 
     Shown as a warning while you are still looking at the screen, rather than left to become a
@@ -133,9 +138,9 @@ def overlapping_job_ids(jobs: Sequence[Job], setup_seconds: float | None = None)
     projection does: without it this was optimistic by ten minutes a job, which is the difference
     between a warning and a warning that arrives too late to act on.
 
-    The caller passes the slowest setup the printer has managed rather than a typical one,
-    because a warning that a job might collide is worth having and a collision that was not
-    warned about costs a cancelled print.
+    It assumes the slowest setup the printer has managed of the earlier job's own kind, rather
+    than a typical one, because a warning that a job might collide is worth having and a
+    collision that was not warned about costs a cancelled print.
     """
     pending = sorted(
         (job for job in jobs if job.state is JobState.SCHEDULED), key=lambda job: job.start_at
@@ -143,7 +148,7 @@ def overlapping_job_ids(jobs: Sequence[Job], setup_seconds: float | None = None)
     clashes: dict[str, str] = {}
     for position, job in enumerate(pending):
         for earlier in pending[:position]:
-            finish = projected_finish(earlier, setup_seconds)
+            finish = projected_finish(earlier, _slowest_setup_for(earlier, setups))
             if finish is not None and job.start_at < finish:
                 clashes[job.job_id] = earlier.job_id
     return clashes
@@ -312,10 +317,11 @@ class ScheduleService:
         twice would be two round trips to say one thing.
         """
         records = self.recent_prints()
-        setup = measure_start_routine(records)
+        jobs = self.jobs()
+        setups = measure_setup_times(records, _levelling_by_printer_job(jobs))
         return {
-            "jobs": payload_for(self.jobs(), self._verdicts_in(records), setup),
-            "setup": None if setup is None else setup.to_dict(),
+            "jobs": payload_for(jobs, self._verdicts_in(records), setups),
+            "setup": setups.to_dict(),
         }
 
     def _verdicts_in(self, records: Sequence[PrintRecord]) -> dict[str, PrintRecord]:
@@ -361,10 +367,24 @@ class ScheduleService:
         return summary
 
 
+def _levelling_by_printer_job(jobs: Sequence[Job]) -> dict[str, bool]:
+    """Which of the printer's own prints we know the levelling choice for.
+
+    Only jobs this scheduler started, and only on a printer that offers the choice at all. The
+    printer's history records what ran, never what it was asked for, so this is the only place
+    the two can be joined.
+    """
+    return {
+        job.printer_job_id: job.level_bed
+        for job in jobs
+        if job.printer_job_id and job.level_bed is not None
+    }
+
+
 def payload_for(
     jobs: Sequence[Job],
     verdicts: dict[str, PrintRecord],
-    setup: SetupTime | None = None,
+    setups: SetupTimes | None = None,
 ) -> list[dict[str, Any]]:
     """Render the schedule for the page: what we did, and separately what the printer says.
 
@@ -372,11 +392,16 @@ def payload_for(
     bell curve with a middle; it is two clusters, nine minutes apart, and a median of them is a
     value almost no print is near. One such projection was six minutes out on a job lasting
     five and a half, while the range around it contained the truth comfortably.
+
+    Each job is measured against prints that made the same levelling choice where there are
+    enough of them, so two jobs on one page can carry honestly different numbers.
     """
-    clashes = overlapping_job_ids(jobs, None if setup is None else setup.longest)
+    clashes = overlapping_job_ids(jobs, setups)
     rendered = []
     for job in jobs:
+        setup = None if setups is None else setups.for_choice(job.level_bed)
         entry = job.to_dict()
+        entry["setup"] = None if setup is None else setup.to_dict()
         entry["projected_finish"] = projected_finish(job, None if setup is None else setup.typical)
         entry["projected_finish_from"] = projected_finish(
             job, None if setup is None else setup.shortest
