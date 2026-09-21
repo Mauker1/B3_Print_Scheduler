@@ -5,6 +5,16 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.9 (in development)
+
+- **The file list can be sorted.** Newest first stays the default, with oldest first, last
+  printed, and name either way round beside it. Every order breaks its ties on the name, so the
+  same list always comes out the same way and nothing shuffles between refreshes. A file nobody
+  has printed sorts to the bottom of *last printed*, where it belongs.
+- Sorting happens in the page rather than on the printer, so it is instant and costs the
+  printer nothing. The choice is not remembered between visits; newest first is the right
+  default often enough that it did not seem worth storing.
+
 ## 0.1.8 (in development)
 
 - **The file picker is a list rather than a dropdown.** An alphabetical `<select>` put the file

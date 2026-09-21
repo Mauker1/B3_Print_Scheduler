@@ -21,8 +21,10 @@ can be used as the starting point for another.
 The file list is newest first, because the file you want is almost always the one you just
 sliced. Each row carries the slicer's own thumbnail, when the file was sliced, when it last
 printed, and how long it takes, and a file nobody has ever printed says so rather than leaving a
-blank. There is a search box, and a long list draws its first forty rows and asks you to narrow
-it.
+blank. There is a search box and a sort control, and a long list draws its first forty rows and asks
+you to narrow it. Newest first is the default; oldest first, last printed, and name either way
+round are there when you want them, and each breaks its ties on the name so the order never
+shuffles under you.
 
 Picking a file shows what it will use: which toolheads, which material and colour in each, how
 long the slicer thinks the printing takes, and what it will heat the bed to. A scheduled job then

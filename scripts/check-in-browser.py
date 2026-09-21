@@ -163,6 +163,22 @@ def check_the_file_list_itself(page: Page) -> None:
     check("and narrow it", page.locator("#file-list .file").count(), 1)
     page.fill("#file-search", "")
     page.wait_for_timeout(100)
+    newest = page.locator("#file-list .file").first.get_attribute("data-filename")
+    page.select_option("#file-sort", "name")
+    page.wait_for_timeout(100)
+    alphabetical = page.locator("#file-list .file").first.get_attribute("data-filename")
+    check("sorting by name changes the order", alphabetical != newest, True)
+    page.select_option("#file-sort", "name-back")
+    page.wait_for_timeout(100)
+    backwards = page.locator("#file-list .file").first.get_attribute("data-filename")
+    check("and reversing it changes the order again", backwards != alphabetical, True)
+    page.select_option("#file-sort", "newest")
+    page.wait_for_timeout(100)
+    check(
+        "and newest first comes back",
+        page.locator("#file-list .file").first.get_attribute("data-filename"),
+        newest,
+    )
 
 
 def check_choosing_a_file(page: Page, filename: str) -> None:
@@ -308,7 +324,10 @@ def main() -> int:
     printer = StandInPrinter(
         describes=dict(WHITE_PLA_METADATA),
         remembers=PRINTS_THAT_FINISHED,
-        modified_at={BENCHY: 1789920000.0, CHINESE_NAME: 1789830000.0},
+        # The Chinese named file is the newer one and the Benchy sorts first by name, so
+        # newest and alphabetical are genuinely different orders rather than the same
+        # one twice, which is what made the first version of the sort check useless.
+        modified_at={BENCHY: 1789830000.0, CHINESE_NAME: 1789920000.0},
         thumbnail_bytes=ONE_PIXEL_PNG,
     )
     with tempfile.TemporaryDirectory() as scratch:

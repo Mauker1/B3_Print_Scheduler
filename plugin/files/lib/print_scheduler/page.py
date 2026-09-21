@@ -41,6 +41,8 @@ label { display: block; font-size: 0.85rem; margin-bottom: 0.15rem; }
 select, input[type=datetime-local], input[type=search] { width: 100%; padding: 0.45rem;
   font: inherit; border: 1px solid var(--line); border-radius: 0.35rem; background: transparent;
   color: inherit; }
+.finder { display: flex; gap: 0.4rem; }
+.finder select { width: auto; flex: 0 0 auto; }
 .files { max-height: 17rem; overflow-y: auto; margin-top: 0.4rem;
   border: 1px solid var(--line); border-radius: 0.35rem; }
 .file { display: flex; gap: 0.6rem; align-items: center; width: 100%; text-align: left;
@@ -84,7 +86,16 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 <h2 id="form-heading">Schedule a print</h2>
 <div class="row">
   <label for="file-search">File already on the printer</label>
-  <input type="search" id="file-search" placeholder="Search by name" autocomplete="off">
+  <div class="finder">
+    <input type="search" id="file-search" placeholder="Search by name" autocomplete="off">
+    <select id="file-sort" aria-label="Sort the files">
+      <option value="newest">Newest first</option>
+      <option value="oldest">Oldest first</option>
+      <option value="printed">Last printed</option>
+      <option value="name">Name A to Z</option>
+      <option value="name-back">Name Z to A</option>
+    </select>
+  </div>
   <div id="file-list" class="files"><p class="quiet">Loading...</p></div>
   <p class="quiet" id="file-count"></p>
 </div>
@@ -599,12 +610,30 @@ function renderFileRow(file) {
   return row;
 }
 
+// Every order breaks its ties on the name, so the same list always comes out the same way and
+// nothing shuffles under you between refreshes.
+var HOW_TO_SORT = {
+  newest: function (a, b) { return b.modified - a.modified || byName(a, b); },
+  oldest: function (a, b) { return a.modified - b.modified || byName(a, b); },
+  // Never printed is zero, which lands at the bottom of this one, where it belongs.
+  printed: function (a, b) { return b.last_printed - a.last_printed || byName(a, b); },
+  name: byName,
+  "name-back": function (a, b) { return byName(b, a); }
+};
+
+function byName(a, b) {
+  return a.filename.localeCompare(b.filename);
+}
+
 function matchingFiles() {
   var needle = document.getElementById("file-search").value.trim().toLowerCase();
-  if (!needle) { return state.files; }
-  return state.files.filter(function (file) {
-    return file.filename.toLowerCase().indexOf(needle) >= 0;
-  });
+  var chosen = HOW_TO_SORT[document.getElementById("file-sort").value] || HOW_TO_SORT.newest;
+  var matching = needle
+    ? state.files.filter(function (file) {
+        return file.filename.toLowerCase().indexOf(needle) >= 0;
+      })
+    : state.files.slice();
+  return matching.sort(chosen);
 }
 
 function renderFiles() {
@@ -642,6 +671,7 @@ function loadSummary(filename) {
 }
 
 document.getElementById("file-search").addEventListener("input", renderFiles);
+document.getElementById("file-sort").addEventListener("change", renderFiles);
 document.getElementById("start-at").addEventListener("input", refreshSaveButton);
 document.getElementById("bed-clear").addEventListener("change", refreshSaveButton);
 document.getElementById("save").addEventListener("click", save);
