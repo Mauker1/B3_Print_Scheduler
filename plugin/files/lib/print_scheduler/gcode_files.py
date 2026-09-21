@@ -2,17 +2,29 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Reading a gcode file's own description of itself.
 
-Two traps live in here and both were found by reading a real printer rather than the documentation.
+**There are two families of metadata field and a printer may have either.** Moonraker writes a
+standard set for any slicer: `filament_colors`, `filament_temps`, `filament_weights`,
+`filament_total`. The Snapmaker firmware adds a parallel set under different names, with more
+detail per slot: `filament_colour`, `nozzle_temp`, `filament_weight`, `filament_used_mm`. Both
+were read off real printers, a U1 and an Ender on mainline Klipper, and neither is a superset of
+the other in naming.
 
-`referenced_tools` is documented by Moonraker and not written by this slicer, so which tools a
-print uses comes from `filament_used_mm`: a non-zero entry means that tool is used. That is a
-better signal anyway, because it is the extrusion total rather than a field a slicer may forget.
+So every field here is read as "the detailed one if this printer has it, otherwise Moonraker's
+own". That order is not arbitrary, and the reason is the second trap below.
 
-`filament_colors`, plural, is **not** the file's colours. It is identical across files sliced
-months apart and it matches the spools loaded right now. The file's own requirement is
-`filament_colour`, singular. Reading the plural one would show you the colours already in the
-machine at the exact moment you were trying to check them against the file, which is the one case
-the feature exists for.
+Two traps, both found by reading a real printer rather than the documentation.
+
+`referenced_tools` is documented by Moonraker and written by neither slicer we have seen: it came
+back empty on a mainline file that plainly uses one tool. So which slots a file uses comes from
+`filament_used_mm` where that exists, and from whatever per-slot lists the file carries where it
+does not.
+
+`filament_colors`, plural, is **not** the file's colours on the U1. It is identical across files
+sliced months apart and it matches the spools loaded right now. There the file's own requirement
+is `filament_colour`, singular. On a mainline Moonraker the singular does not exist and the plural
+is the file's own colour, which is why the preference order matters: reading the plural first
+would show you the colours already in the machine at the exact moment you were trying to check
+them against the file, which is the one case the feature exists for.
 """
 
 from __future__ import annotations
@@ -107,27 +119,95 @@ def _as_float(value: Any) -> float:
         return 0.0
 
 
+def _detailed_or_standard(metadata: dict[str, Any], detailed: str, standard: str) -> Any:
+    """One per-slot list, preferring the field with more in it.
+
+    The detailed name is the Snapmaker one and the standard name is Moonraker's. A printer has
+    one or the other, and on the printer that has both the detailed one is the file's own while
+    the standard one describes the machine, so the order is load bearing rather than tidy.
+    """
+    value = metadata.get(detailed)
+    if isinstance(value, list) and value:
+        return value
+    return metadata.get(standard)
+
+
+def _colours_of(metadata: dict[str, Any]) -> tuple[str, ...]:
+    """What colour each slot asks for, from whichever field this printer writes."""
+    detailed = str(metadata.get("filament_colour", ""))
+    if detailed:
+        return split_slicer_list(detailed)
+    standard = metadata.get("filament_colors") or metadata.get("extruder_colors")
+    return tuple(str(one) for one in standard) if isinstance(standard, list) else ()
+
+
 def tools_used(metadata: dict[str, Any]) -> tuple[ToolUse, ...]:
-    """The toolheads this file extrudes from, in order."""
-    used_mm = metadata.get("filament_used_mm")
-    if not isinstance(used_mm, list):
-        return ()
-    types = split_slicer_list(str(metadata.get("filament_type", "")))
-    names = split_slicer_list(str(metadata.get("filament_name", "")))
-    colours = split_slicer_list(str(metadata.get("filament_colour", "")))
-    return tuple(
-        ToolUse(
-            slot=index,
-            used_mm=_as_float(millimetres),
-            used_grams=_number_at(metadata.get("filament_weight"), index),
-            filament_type=_text_at(types, index),
-            filament_name=_text_at(names, index),
-            colour=_text_at(colours, index),
-            nozzle_temperature=_number_at(metadata.get("nozzle_temp"), index),
-        )
-        for index, millimetres in enumerate(used_mm)
-        if _as_float(millimetres) > 0
+    """The slots this file extrudes from, in order."""
+    weights = _detailed_or_standard(metadata, "filament_weight", "filament_weights")
+    temperatures = _detailed_or_standard(metadata, "nozzle_temp", "filament_temps")
+    described = _Described(
+        types=split_slicer_list(str(metadata.get("filament_type", ""))),
+        names=split_slicer_list(str(metadata.get("filament_name", ""))),
+        colours=_colours_of(metadata),
+        weights=weights,
+        temperatures=temperatures,
     )
+    used_mm = metadata.get("filament_used_mm")
+    if isinstance(used_mm, list):
+        return tuple(
+            _one_slot(described, index, _as_float(millimetres))
+            for index, millimetres in enumerate(used_mm)
+            if _as_float(millimetres) > 0
+        )
+    return _slots_without_a_usage_list(metadata, described)
+
+
+@dataclass(frozen=True)
+class _Described:
+    """The per-slot lists, already resolved to whichever field this printer writes."""
+
+    types: tuple[str, ...]
+    names: tuple[str, ...]
+    colours: tuple[str, ...]
+    weights: Any
+    temperatures: Any
+
+
+def _one_slot(described: _Described, index: int, used_mm: float) -> ToolUse:
+    return ToolUse(
+        slot=index,
+        used_mm=used_mm,
+        used_grams=_number_at(described.weights, index),
+        filament_type=_text_at(described.types, index),
+        filament_name=_text_at(described.names, index),
+        colour=_text_at(described.colours, index),
+        nozzle_temperature=_number_at(described.temperatures, index),
+    )
+
+
+def _slots_without_a_usage_list(
+    metadata: dict[str, Any], described: _Described
+) -> tuple[ToolUse, ...]:
+    """A printer whose Moonraker reports no per-slot extrusion, which is most of them.
+
+    The slot count is however many entries the per-slot lists carry. Weight is the only usage
+    figure on offer, so a slot weighing nothing is treated as unused, exactly as a slot
+    extruding nothing is on a printer that reports millimetres.
+    """
+    counted = [len(one) for one in (described.colours, described.types, described.names)]
+    counted += [
+        len(one)
+        for one in (described.weights, described.temperatures)
+        if isinstance(one, list)
+    ]
+    how_many = max(counted, default=0)
+    if not how_many:
+        return ()
+    # The total is for the whole file, so it can only be attributed when there is one slot.
+    total = _as_float(metadata.get("filament_total")) if how_many == 1 else 0.0
+    slots = tuple(_one_slot(described, index, total) for index in range(how_many))
+    weighed = tuple(one for one in slots if one.used_grams > 0)
+    return weighed or slots
 
 
 def summarise(filename: str, metadata: dict[str, Any]) -> FileSummary:

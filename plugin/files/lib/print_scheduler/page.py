@@ -255,7 +255,11 @@ function describeSlot(tool, plan) {
   var assignment = assignmentFor(plan, tool.slot);
   var text = "slot " + tool.slot + " " + (tool.filament_type || "filament");
   if (tool.used_grams) { text += " " + tool.used_grams.toFixed(1) + " g"; }
-  return text + (assignment ? " on T" + assignment.toolhead : " (no toolhead)");
+  // A toolhead is named only when one was chosen. Saying "no toolhead" where the printer does
+  // not report what is loaded reads as a machine with no toolhead, which is not the situation:
+  // there is simply nothing to choose between. Where a choice failed, the refusal says so
+  // below in its own words, and repeating it on every row adds nothing.
+  return assignment ? text + " on T" + assignment.toolhead : text;
 }
 
 function mismatchedColours(plan) {
@@ -297,6 +301,12 @@ function renderFileFacts() {
   if (summary.chamber_temperature) { facts.push("chamber " + summary.chamber_temperature + "C"); }
   if (summary.layer_count) { facts.push(summary.layer_count + " layers"); }
   if (facts.length) { parts.push(element("p", "facts", facts.join(", "))); }
+
+  if (summary.plan && !summary.plan.applicable && summary.tools.length > 1) {
+    parts.push(element("p", "quiet",
+      "This printer does not report what each toolhead holds, so the file's own tool numbering " +
+      "is used as it was sliced."));
+  }
 
   if (summary.plan && summary.plan.problem) {
     parts.push(element("p", "stop", summary.plan.problem));

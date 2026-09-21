@@ -50,6 +50,10 @@ purple went to navy.
 Material is never traded away for colour. If nothing loaded has the right material for a slot,
 nothing starts.
 
+On a printer that does not report what each toolhead holds, there is no choice to make: the page
+lists the file's slots without naming toolheads, and the file's own tool numbering runs as it was
+sliced.
+
 The mapping is chosen as a whole rather than a slot at a time. Taking each slot's own best
 toolhead in turn is the obvious approach and it is wrong: slot 0 can take the toolhead slot 1
 needed far more, when slot 0 had an almost as good second choice. What is minimised is the
@@ -209,9 +213,16 @@ the parameterised start command, what each toolhead has loaded, and which filena
 parser can take. A printer that answers no to all three gets Moonraker's own print start, no
 toolhead map, no preference toggles, and no filename refusals it does not need.
 
-That path is covered by tests and **has not been run on such a printer**. It is written down here
-rather than left to be discovered, and this paragraph changes when a second machine has actually
-run it.
+That path has now run on a second machine, an Ender 2 Pro Max on mainline Klipper and Moonraker,
+end to end: a job was scheduled, it started on time through Moonraker's own print start, the
+scheduler saw the printer take it, and the outcome came back from that printer's history. No
+toolhead was chosen and no preferences were offered, both correctly, because that machine reports
+neither.
+
+One thing there is still only tested on a Snapmaker U1: **installing the package**. The service
+was run directly against that printer rather than installed on it, since Bespok3d does not run
+there. The install classes are mapped to real paths by each printer's own adapter, so a second
+adapter remains a thing this plugin has never met.
 
 ## What it does not do yet
 

@@ -152,6 +152,7 @@ def check_choosing_a_file(page: Page, filename: str) -> None:
     # The regression, visible on screen: slot 0 wants white PLA, which is on T2. The
     # printer would default it to T0, where the ASA is.
     check("the toolhead it chose is shown", "on T2" in facts, True)
+    check("and nothing claims there is no toolhead", "no toolhead" in facts, False)
     check("the estimate is shown", "about 26s" in facts, True)
     check("the bed temperature is shown", "bed 45" in facts, True)
     check("a file alone is not enough to schedule", page.is_disabled("#save"), True)

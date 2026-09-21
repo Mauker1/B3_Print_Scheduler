@@ -26,7 +26,7 @@ from print_scheduler import (
     reason_filename_cannot_start,
     run_tick,
 )
-from printer_stand_in import BENCHY, a_generic_klipper
+from printer_stand_in import BENCHY, MAINLINE_METADATA, a_generic_klipper
 
 SIX_IN_THE_MORNING = 1_758_348_000.0
 LAST_NIGHT = SIX_IN_THE_MORNING - 8 * 3600
@@ -87,3 +87,20 @@ def test_a_file_that_says_almost_nothing_about_itself_still_schedules(tmp_path: 
     assert job.state is JobState.SCHEDULED
     assert service.file_summary(BENCHY).tools == ()
     assert not service.tool_plan(service.file_summary(BENCHY)).applicable
+
+
+def test_a_real_mainline_file_shows_its_material_without_a_map(tmp_path: Path) -> None:
+    # The file that actually came off the second printer. Its slot is described, so the page
+    # has something to show, and there is nothing loaded to map it onto, so nothing is
+    # refused for the lack of a map. Both halves matter: showing blanks would be a bug, and
+    # refusing the job would be a worse one.
+    printer = a_generic_klipper(describes=dict(MAINLINE_METADATA))
+    service = a_service(tmp_path, printer)
+    summary = service.file_summary(BENCHY)
+    assert len(summary.tools) == 1
+    assert summary.tools[0].filament_type == "PLA"
+    assert summary.tools[0].colour == "#FF8040"
+    plan = service.tool_plan(summary)
+    assert plan.problem is None
+    assert not plan.applicable
+    assert service.add(a_request(), LAST_NIGHT).state is JobState.SCHEDULED

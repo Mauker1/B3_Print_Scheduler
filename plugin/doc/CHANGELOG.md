@@ -5,6 +5,33 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.7 (in development)
+
+- **A file's material, colour and temperature are read on printers that are not the one this
+  was written against.** Moonraker writes a standard set of metadata fields for any slicer, and
+  the Snapmaker firmware adds a parallel set under different names with more detail per slot.
+  Every field the file picker shows was being read from the second set only, so on a mainline
+  Klipper the picker said *this file does not say what material it needs* about a file that
+  says so perfectly clearly. Each field now prefers the detailed name and falls back to
+  Moonraker's own.
+- The preference order is deliberate, not tidiness. On the U1 the plural `filament_colors` is
+  the spools currently in the machine rather than the file's colours, so reading it first would
+  compare the machine against itself. It is only read where the singular field does not exist,
+  which is where it is the file's own.
+- On a printer that reports no per slot extrusion, the slot count comes from whatever per slot
+  lists the file carries, and a slot weighing nothing is treated as unused, weight being the
+  only usage figure such a printer offers.
+- Proven on a real second printer, an Ender 2 Pro Max on mainline Klipper, Moonraker and
+  OrcaSlicer, whose metadata is now a test fixture. A job scheduled there started on time
+  through Moonraker's own print start, was seen to take, and had its outcome read back from
+  that printer's history.
+- **A slot no longer claims there is no toolhead.** On a printer that does not report what is
+  loaded there is a toolhead; what there is not is a choice to make, and *(no toolhead)* read as
+  a machine missing one. A toolhead is named only where one was chosen. Where a choice failed,
+  the refusal already says so in its own words below.
+- A multi slot file on such a printer says once, quietly, that the file's own tool numbering is
+  used as it was sliced, which is the one case where a reader might reasonably wonder.
+
 ## 0.1.6 (in development)
 
 - **The projected finish is a range, not a time.** Twenty runs off the printer show setup time

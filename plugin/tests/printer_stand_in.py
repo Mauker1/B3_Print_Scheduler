@@ -64,6 +64,31 @@ WHITE_PLA_METADATA: dict[str, Any] = {
     "slicer": "SnapmakerOrca",
 }
 
+# 3DBenchy_0.2mm_PLA_43m59s.gcode, verbatim from an Ender 2 Pro Max running mainline Klipper,
+# Moonraker and OrcaSlicer. Not one of the per slot fields the U1 writes is here: no
+# filament_used_mm, no filament_colour, no nozzle_temp, no filament_weight. What there is
+# instead is Moonraker's own standard set, plural and one entry long.
+MAINLINE_METADATA: dict[str, Any] = {
+    "chamber_temp": 0.0,
+    "estimated_time": 2639,
+    "extruder_colors": ["#FF8040"],
+    "filament_colors": ["#FF8040"],
+    "filament_name": "Snapmaker PLA @ E2PM 0.4mm",
+    "filament_temps": [220],
+    "filament_total": 3600.3,
+    "filament_type": "PLA",
+    "filament_weight_total": 10.74,
+    "filament_weights": [10.74],
+    "first_layer_bed_temp": 55.0,
+    "first_layer_extr_temp": 220.0,
+    "layer_count": 240,
+    "nozzle_diameter": 0.4,
+    "object_height": 48.0,
+    "referenced_tools": [],
+    "slicer": "OrcaSlicer",
+    "slicer_version": "2.3.0",
+}
+
 # A file sliced for a printer that tracks nothing: no per tool lists, no colours, no bed
 # temperature. Everything the page shows is optional except the name, and this is the fixture
 # that proves it.

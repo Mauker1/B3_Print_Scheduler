@@ -188,6 +188,28 @@ may share a name with a property of HTMLFormElement, and the page may not emit a
 That second one cannot be checked by this harness, which serves the page at the root where a
 relative URL and an absolute one both happen to work.
 
+## Running it against a real printer without installing it
+
+The service is standard library Python that talks to Moonraker over HTTP, so it does not need the
+daemon, nginx, or a `.b3` to run. Point it at any printer on your network:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 plugin/files/bin/print-scheduler.py \
+  --moonraker http://<printer>:7125 \
+  --bind 127.0.0.1 --port 8095 \
+  --state /tmp/sched.json --user-vars /tmp/vars.json
+```
+
+Then open `http://127.0.0.1:8095/`. Your browser only talks to this service and this service talks
+to Moonraker, so there is no cross origin problem to solve.
+
+`PYTHONDONTWRITEBYTECODE=1` matters: the entry point puts `plugin/files/lib` on the path, so
+without it Python leaves `__pycache__` under `plugin/files/`, which is exactly what
+`test_nothing_that_should_not_ship_is_under_files` refuses to let into a package.
+
+This is how the plugin gets exercised against a printer that is not a Snapmaker U1. It reads and
+it renders; starting a print that way starts a real print, so do it deliberately.
+
 ## Building locally
 
 The builder is installed into its own prefix. Do not use `npx b3-builder`: it resolves to whatever copy
