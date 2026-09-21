@@ -242,9 +242,39 @@ is busy is never waited for, whatever this is set to.
 
 **Finished jobs to keep** (default 25). The settled list is trimmed to this many, newest first,
 whenever the schedule changes. Jobs that have not run yet are never trimmed. Zero keeps nothing
-once a job has settled, and is worth one caveat: those records are also what tells a levelled
-print's setup time from an unlevelled one, so keeping none of them projects every job from a
-single figure again.
+once a job has settled. It only changes how many rows you see: the scheduler keeps enough
+history of its own to tell a levelled print's setup time from an unlevelled one whatever this is
+set to.
+
+## Coming back after a long time away
+
+The scheduler can stop running without you deciding that it should. The Bespok3d daemon
+deactivates a plugin that breaks Klipper or Moonraker, so that your printer keeps working. A
+printer gets switched off for a fortnight. The plugin gets uninstalled and the schedule outlives
+it, for the reason in the next section.
+
+In all of those it comes back holding prints nobody has looked at since, and starting one of
+those unattended is the thing this plugin is most careful about. So if it was away for more than
+a day, everything still waiting is held: the page says the scheduler was not running for a
+while, and one button confirms that the schedule still says what you want. Nothing starts until
+you press it.
+
+A held job is not cancelled either, because letting it quietly expire would answer the question
+for you. Once released it meets the ordinary rules again, so one whose moment has already gone
+is then cancelled and tells you so.
+
+An upgrade takes seconds, so it never triggers this, and neither does a fresh install.
+
+## Uninstalling does not cancel scheduled prints
+
+Uninstalling removes the plugin, its settings and its web page. It does not remove your
+schedule. The schedule lives in a data directory, and the Bespok3d daemon preserves those across
+an uninstall on purpose, so that a plugin cannot throw away your data. Reinstall, and the
+schedule is there again.
+
+If you want a scheduled print gone, cancel it in the plugin before uninstalling. If you
+reinstall much later, the section above applies: everything waiting is held until you confirm
+it.
 
 ## What has been tested, and where
 

@@ -106,6 +106,11 @@ class Job:
     # deliberately the only thing we keep about that: the outcome is the printer's claim, so
     # it is looked up when someone asks rather than copied into our own record.
     printer_job_id: str = ""
+    # Set when the scheduler came back from a long silence and found this job still waiting.
+    # A held job is not considered by the tick at all, not even for lateness: it is a promise
+    # nobody has looked at since before the silence, and the person who made it gets to say
+    # whether it still stands. Cleared for every job at once, by the button on the page.
+    held: bool = False
     attempts: tuple[Attempt, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
@@ -126,6 +131,7 @@ class Job:
             "detail": self.detail,
             "decided_at": self.decided_at,
             "printer_job_id": self.printer_job_id,
+            "held": self.held,
             "attempts": [{"at": attempt.at, "detail": attempt.detail} for attempt in self.attempts],
         }
 
@@ -149,6 +155,7 @@ def job_from_dict(payload: dict[str, Any]) -> Job:
         detail=str(payload.get("detail", "")),
         decided_at=payload.get("decided_at"),
         printer_job_id=str(payload.get("printer_job_id", "")),
+        held=bool(payload.get("held", False)),
         attempts=tuple(
             Attempt(at=float(entry["at"]), detail=str(entry["detail"]))
             for entry in payload.get("attempts", [])

@@ -20,6 +20,7 @@ import time
 from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
@@ -31,7 +32,30 @@ from print_scheduler.service import (
 )
 
 SERVICE_NAME = "print-scheduler"
-SERVICE_VERSION = "0.1.14"
+
+# Four levels up is the plugin root, in this repo and on the printer alike:
+# <plugin>/files/lib/print_scheduler/server.py
+MANIFEST_PATH = Path(__file__).resolve().parents[3] / "manifest.json"
+
+
+def version_in(manifest_path: Path) -> str:
+    """The plugin's version, or "unknown" when the manifest is not where it should be.
+
+    Read rather than copied. The manifest is the release contract, so a second copy here would
+    be a second thing to remember at a moment nobody is thinking about it, and it is the copy
+    that gets forgotten: nothing breaks when it goes stale, it just starts lying quietly.
+
+    It takes a path so the missing case can be tested, and that case is worth testing. A
+    service running from outside its plugin tree should say it does not know rather than
+    invent a number: a wrong version in a bug report costs more than a missing one.
+    """
+    try:
+        return str(json.loads(manifest_path.read_text(encoding="utf-8"))["version"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return "unknown"
+
+
+SERVICE_VERSION = version_in(MANIFEST_PATH)
 
 JSON_CONTENT_TYPE = "application/json"
 # A schedule entry is a filename and a few flags. Anything larger is not one.
@@ -270,6 +294,12 @@ def forget_settled_jobs(handler: SchedulerRequestHandler) -> None:
     handler.respond_json(HTTPStatus.OK, {"forgotten": gone})
 
 
+def release_held_jobs(handler: SchedulerRequestHandler) -> None:
+    """Let jobs held after a long silence stand again, all of them at once."""
+    released = handler.schedule().release_held_jobs()
+    handler.respond_json(HTTPStatus.OK, {"released": released})
+
+
 GET_ROUTES: dict[str, Route] = {
     "/": serve_schedule_page,
     "/health": serve_health,
@@ -286,6 +316,7 @@ POST_ROUTES: dict[str, Route] = {
     "/jobs/cancel": cancel_job,
     "/jobs/forget": forget_job,
     "/jobs/forget-settled": forget_settled_jobs,
+    "/jobs/release": release_held_jobs,
 }
 
 

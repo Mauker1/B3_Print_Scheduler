@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from types import FrameType
 
+from print_scheduler.heartbeat import Heartbeat
 from print_scheduler.moonraker import MoonrakerPrinter
 from print_scheduler.server import SERVICE_NAME, SERVICE_VERSION, build_server
 from print_scheduler.service import ScheduleService
@@ -84,6 +85,10 @@ def main(argv: Sequence[str]) -> int:
         ScheduleStore(Path(arguments.state)),
         MoonrakerPrinter(arguments.moonraker),
         Path(arguments.user_vars),
+        # Beside the schedule rather than given its own argument: it is the same data
+        # directory, it lives and dies with the schedule it describes, and a second path to
+        # get wrong in the manifest buys nothing.
+        Heartbeat(Path(arguments.state).with_name("last-seen")),
     )
     server = build_server(arguments.bind, arguments.port, service)
     stopping = threading.Event()

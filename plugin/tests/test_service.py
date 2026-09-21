@@ -14,12 +14,15 @@ from pathlib import Path
 
 import pytest
 from print_scheduler import (
+    A_LONG_SILENCE_SECONDS,
     LABELS_WORTH_KEEPING,
+    Heartbeat,
     Job,
     JobRequest,
     JobState,
     LoadedFilament,
     PrintRecord,
+    Refusal,
     ScheduleRejectedError,
     ScheduleService,
     ScheduleStore,
@@ -61,12 +64,23 @@ def a_finished_print() -> PrintRecord:
     )
 
 
-def a_service(tmp_path: Path, printer: StandInPrinter | None = None) -> ScheduleService:
+def a_service(
+    tmp_path: Path,
+    printer: StandInPrinter | None = None,
+    heartbeat: Heartbeat | None = None,
+) -> ScheduleService:
     return ScheduleService(
         ScheduleStore(tmp_path / "jobs.json"),
         printer or StandInPrinter(),
         tmp_path / "user_vars.json",
+        heartbeat,
     )
+
+
+def a_heartbeat_last_seen(tmp_path: Path, when: float) -> Heartbeat:
+    beat = Heartbeat(tmp_path / "last-seen")
+    beat.mark(when)
+    return Heartbeat(tmp_path / "last-seen")
 
 
 def a_request(**overrides: object) -> JobRequest:
@@ -536,3 +550,107 @@ def test_clearing_the_settled_list_does_take_the_labels_with_it(tmp_path: Path) 
 
     assert service.forget_every_settled_job() == 3
     assert service.schedule_payload()["setup"]["levelled"] is None
+
+
+def test_a_long_silence_holds_everything_still_waiting(tmp_path: Path) -> None:
+    """The case the hold exists for, and the one nobody would think to check.
+
+    The daemon deactivates a plugin that breaks Klipper or Moonraker so that the printer keeps
+    working, which means this can be switched off without anybody choosing it and without
+    anybody being told. A frozen queue firing on the way back is the failure the rest of this
+    file spends its time avoiding one job at a time.
+    """
+    service = a_service(tmp_path)
+    waiting = service.add(a_request(), LAST_NIGHT)
+    assert not waiting.held
+
+    back = LAST_NIGHT + A_LONG_SILENCE_SECONDS + 60
+    after_the_silence = a_service(tmp_path, heartbeat=a_heartbeat_last_seen(tmp_path, LAST_NIGHT))
+    after_the_silence.tick(back)
+
+    held = [job for job in after_the_silence.jobs() if job.held]
+    assert [job.job_id for job in held] == [waiting.job_id]
+    # Held means held: the job is past its time and the tolerance, and it has still not been
+    # cancelled as missed, because letting it expire would answer the question for the person.
+    assert held[0].state is JobState.SCHEDULED
+
+
+def test_a_short_silence_holds_nothing(tmp_path: Path) -> None:
+    # An upgrade takes seconds. Taxing every version bump with a confirmation would make the
+    # hold something people click through without reading, which is worse than not having it.
+    service = a_service(tmp_path)
+    service.add(a_request(), LAST_NIGHT)
+
+    restarted = a_service(tmp_path, heartbeat=a_heartbeat_last_seen(tmp_path, LAST_NIGHT))
+    restarted.tick(LAST_NIGHT + 30)
+    assert not any(job.held for job in restarted.jobs())
+
+
+def test_a_first_install_holds_nothing(tmp_path: Path) -> None:
+    # No mark at all, which is also what an upgrade from a version without one looks like.
+    service = a_service(tmp_path, heartbeat=Heartbeat(tmp_path / "never-written"))
+    service.add(a_request(), LAST_NIGHT)
+    service.tick(LAST_NIGHT + 60)
+    assert not any(job.held for job in service.jobs())
+
+
+def test_a_silence_does_not_hold_what_already_settled(tmp_path: Path) -> None:
+    # A job that ran is history and a cancelled one is finished. Neither is a promise about
+    # the future, and the future is the only thing a hold is protecting.
+    service = a_service(tmp_path)
+    done = service.add(a_request(), LAST_NIGHT)
+    service.cancel(done.job_id, LAST_NIGHT)
+
+    back = LAST_NIGHT + A_LONG_SILENCE_SECONDS + 60
+    after = a_service(tmp_path, heartbeat=a_heartbeat_last_seen(tmp_path, LAST_NIGHT))
+    after.tick(back)
+    assert not any(job.held for job in after.jobs())
+
+
+def test_releasing_frees_every_held_job_at_once(tmp_path: Path) -> None:
+    service = a_service(tmp_path)
+    service.add(a_request(), LAST_NIGHT)
+    service.add(a_request(start_at=SIX_IN_THE_MORNING + 7200), LAST_NIGHT)
+
+    back = LAST_NIGHT + A_LONG_SILENCE_SECONDS + 60
+    after = a_service(tmp_path, heartbeat=a_heartbeat_last_seen(tmp_path, LAST_NIGHT))
+    after.tick(back)
+    assert sum(1 for job in after.jobs() if job.held) == 2
+
+    assert after.release_held_jobs() == 2
+    assert not any(job.held for job in after.jobs())
+    # And releasing again is not an error, it is simply nothing to do.
+    assert after.release_held_jobs() == 0
+
+
+def test_a_released_job_whose_moment_has_gone_is_cancelled_and_says_so(tmp_path: Path) -> None:
+    """Released is not started. The ordinary rules apply again, and they refuse it out loud."""
+    service = a_service(tmp_path)
+    service.add(a_request(), LAST_NIGHT)
+
+    back = LAST_NIGHT + A_LONG_SILENCE_SECONDS + 60
+    after = a_service(tmp_path, heartbeat=a_heartbeat_last_seen(tmp_path, LAST_NIGHT))
+    after.tick(back)
+    after.release_held_jobs()
+    after.tick(back + 1)
+
+    settled = after.jobs()[0]
+    assert settled.state is JobState.CANCELLED
+    assert settled.refusal is Refusal.MISSED
+
+
+def test_the_hold_is_asked_once_and_not_on_every_tick(tmp_path: Path) -> None:
+    # Otherwise a job scheduled after the confirmation would be held by the next tick, and the
+    # page would ask again about a promise made thirty seconds ago.
+    back = LAST_NIGHT + A_LONG_SILENCE_SECONDS + 60
+    service = a_service(tmp_path)
+    service.add(a_request(start_at=back + 7200), LAST_NIGHT)
+
+    after = a_service(tmp_path, heartbeat=a_heartbeat_last_seen(tmp_path, LAST_NIGHT))
+    after.tick(back)
+    after.release_held_jobs()
+    fresh = after.add(a_request(start_at=back + 10800), back)
+    after.tick(back + 30)
+
+    assert not any(job.held for job in after.jobs())
+    assert not next(job for job in after.jobs() if job.job_id == fresh.job_id).held

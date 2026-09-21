@@ -266,8 +266,15 @@ def decide(moment: Moment) -> Decision:
 
 
 def is_due(job: Job, now: float) -> bool:
-    """Whether the tick should consider this job at all."""
-    return job.state is JobState.SCHEDULED and job.start_at <= now
+    """Whether the tick should consider this job at all.
+
+    A held job is never due, however far past its time it is. It is waiting on a person, and
+    the rules below would otherwise cancel it as missed the moment the tolerance ran out,
+    which would answer the question on the person's behalf by letting the promise expire. Once
+    released it meets those rules like any other job, and a released job whose moment has gone
+    is cancelled as missed with the reason said out loud.
+    """
+    return not job.held and job.state is JobState.SCHEDULED and job.start_at <= now
 
 
 def run_tick(

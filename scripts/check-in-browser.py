@@ -37,6 +37,7 @@ sys.dont_write_bytecode = True
 import base64  # noqa: E402  after the bytecode setting
 import tempfile  # noqa: E402
 import threading  # noqa: E402
+import time  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any  # noqa: E402
 
@@ -58,6 +59,9 @@ except ModuleNotFoundError:  # pragma: no cover  the message is the point
         "    .venv/bin/python scripts/check-in-browser.py"
     )
 from print_scheduler import (  # noqa: E402
+    A_LONG_SILENCE_SECONDS,
+    Heartbeat,
+    Job,
     PrintRecord,
     ScheduleService,
     ScheduleStore,
@@ -424,13 +428,79 @@ def run_every_check(page: Page, printer: StandInPrinter, base_url: str) -> None:
     check_a_file_whose_material_is_not_loaded(page, printer)
 
 
-def serve(scratch: Path, printer: StandInPrinter) -> tuple[str, Any]:
+def a_schedule_left_behind(scratch: Path) -> Heartbeat:
+    """A waiting job, and a heartbeat saying the scheduler has been away a day and a half."""
+    now = time.time()
+    Heartbeat(scratch / "last-seen").mark(now - A_LONG_SILENCE_SECONDS * 1.5)
+    ScheduleStore(scratch / "jobs.json").save([
+        Job(
+            job_id="left-behind",
+            filename=BENCHY,
+            start_at=now + 7 * 24 * 3600,
+            created_at=now - A_LONG_SILENCE_SECONDS * 2,
+            bed_acknowledged=True,
+        )
+    ])
+    return Heartbeat(scratch / "last-seen")
+
+
+def check_the_held_notice(page: Page) -> None:
+    page.wait_for_selector("#pending .job", timeout=PATIENCE_MILLISECONDS)
+    page.wait_for_selector("#held-notice .warn", timeout=PATIENCE_MILLISECONDS)
+    notice = text_of(page, "#held-notice")
+    check("the page says the scheduler was away", "not running for a while" in notice, True)
+    check("and that nothing starts until it is confirmed",
+          "Nothing waiting will start until you confirm" in notice, True)
+    check("the job itself says it is waiting on you",
+          "Waiting for you to confirm" in text_of(page, "#pending"), True)
+    check("and it was not cancelled while nobody was looking",
+          "Did not run" in text_of(page, "#pending"), False)
+
+    page.click("#held-notice button")
+    # Detached rather than hidden: the notice is emptied, and an empty div is never "visible".
+    page.wait_for_selector("#held-notice .warn", state="detached", timeout=PATIENCE_MILLISECONDS)
+    check("one click releases it", text_of(page, "#held-notice"), "")
+    check("the job stays in the list, unheld",
+          "Waiting for you to confirm" in text_of(page, "#pending"), False)
+    check("and is still scheduled", "Starts" in text_of(page, "#pending"), True)
+
+
+def check_what_a_long_silence_looks_like(scratch: Path, printer: StandInPrinter) -> None:
+    """A second service, over a schedule left behind by a long silence.
+
+    The hold is decided once per run, on the first tick, so it cannot be staged inside a
+    session that is already up. This starts a fresh one over a schedule that predates the
+    silence the heartbeat describes.
+    """
+    print("\nComing back from a long silence")
+    base_url, server, service = serve(scratch, printer, a_schedule_left_behind(scratch))
+    # The service decides about the silence on its first tick, which is what the real one does
+    # as it comes up. Nothing here is due, so this settles nothing else.
+    service.tick(time.time())
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page()
+            watch_for_complaints(page)
+            page.goto(base_url)
+            check_the_held_notice(page)
+            browser.close()
+    finally:
+        server.shutdown()
+
+
+def serve(
+    scratch: Path, printer: StandInPrinter, heartbeat: Heartbeat | None = None
+) -> tuple[str, Any, ScheduleService]:
     service = ScheduleService(
-        ScheduleStore(scratch / "jobs.json"), printer, scratch / "user_vars.json"
+        ScheduleStore(scratch / "jobs.json"),
+        printer,
+        scratch / "user_vars.json",
+        heartbeat,
     )
     server = build_server("127.0.0.1", 0, service)
     threading.Thread(target=server.serve_forever, name="check-in-browser", daemon=True).start()
-    return f"http://127.0.0.1:{int(server.server_address[1])}/", server
+    return f"http://127.0.0.1:{int(server.server_address[1])}/", server, service
 
 
 def report() -> int:
@@ -457,7 +527,7 @@ def main() -> int:
         thumbnail_bytes=ONE_PIXEL_PNG,
     )
     with tempfile.TemporaryDirectory() as scratch:
-        base_url, server = serve(Path(scratch), printer)
+        base_url, server, service = serve(Path(scratch), printer)
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch()
             page = browser.new_page()
@@ -465,6 +535,7 @@ def main() -> int:
             run_every_check(page, printer, base_url)
             browser.close()
         server.shutdown()
+        check_what_a_long_silence_looks_like(Path(scratch), printer)
     return report()
 
 

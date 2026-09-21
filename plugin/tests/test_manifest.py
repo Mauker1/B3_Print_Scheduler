@@ -65,8 +65,31 @@ def test_the_integrity_list_is_left_for_the_builder() -> None:
     assert MANIFEST["files"] == []
 
 
-def test_the_manifest_version_matches_the_service() -> None:
+def test_the_service_reports_the_manifest_version() -> None:
+    """Not a tautology, although it reads like one now that the service reads the manifest.
+
+    What it actually checks is that four-levels-up still lands on the plugin root, which is
+    the one thing that could silently break the version the page and /health report. If the
+    package is ever rearranged, this fails rather than everything quietly saying "unknown".
+    """
     assert MANIFEST["version"] == print_scheduler.SERVICE_VERSION
+    assert print_scheduler.SERVICE_VERSION != "unknown"
+
+
+def test_a_missing_manifest_reads_as_unknown_rather_than_a_guess(tmp_path: Path) -> None:
+    # A service running from outside its plugin tree. A wrong version in a bug report costs
+    # more than a missing one, so it says it does not know.
+    assert print_scheduler.version_in(tmp_path / "nothing-here.json") == "unknown"
+
+
+def test_a_manifest_that_cannot_be_parsed_reads_as_unknown_too(tmp_path: Path) -> None:
+    broken = tmp_path / "manifest.json"
+    broken.write_text("{ not json", encoding="utf-8")
+    assert print_scheduler.version_in(broken) == "unknown"
+
+    versionless = tmp_path / "versionless.json"
+    versionless.write_text('{"name": "print-scheduler"}', encoding="utf-8")
+    assert print_scheduler.version_in(versionless) == "unknown"
 
 
 def test_every_placed_file_is_in_the_package() -> None:

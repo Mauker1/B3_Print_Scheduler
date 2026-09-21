@@ -5,7 +5,58 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
-## 0.1.11 (in development)
+## 0.1.15
+
+- **The scheduler now asks before acting on promises made before a long silence.** It can stop
+  running without anybody choosing it: the Bespok3d daemon deactivates a plugin that breaks
+  Klipper or Moonraker so the printer keeps working, a printer sits switched off for a
+  fortnight, or somebody uninstalls it and the schedule survives because the platform keeps a
+  plugin's data on purpose. In all three it comes back holding prints nobody has looked at
+  since. If it was away for more than a day, everything still waiting is held, the page says so,
+  and one button releases all of them.
+- A held job is **not** started, and not cancelled either. Letting it quietly expire as missed
+  would answer the question on your behalf. Once released it meets the ordinary rules again, so
+  one whose moment has gone is then cancelled and says why.
+- An upgrade takes seconds, so it never triggers this. Neither does a first install, nor an
+  upgrade from a version that never recorded being alive.
+- **The version shown on the page and at `/health` is now read from the manifest** rather than
+  written down a second time in the service. There was never a mismatch, because the gate
+  checked for one, but there was a second thing to remember at every release.
+
+## 0.1.14
+
+- **The schedule moved to a data directory the daemon knows about**, from
+  `$BESPOK3D/var/print-scheduler/` to `$BESPOK3D/var/lib/print-scheduler/`, declared with
+  `install.data`. The old location was a directory the service created at runtime and the
+  daemon had never heard of.
+- This does not change what an uninstall leaves behind, and cannot: declared data directories
+  are exactly the ones the platform preserves, so that plugins do not throw away your work. It
+  means the directory is the plugin's on the record rather than one nobody is tracking.
+- **The documentation now says plainly that uninstalling does not cancel scheduled prints.**
+  Cancel them in the plugin first if you want them gone.
+
+## 0.1.13
+
+- **Both job lists are ordered by time rather than by when the job was typed.** Scheduled is
+  soonest first, so the list says what happens next; settled is most recently settled first.
+  Previously a job added later but due sooner sat at the bottom of the queue, and the settled
+  list was in reverse creation order, which looks like newest first often enough to be trusted
+  and quietly is not.
+- **Job rows carry the file's preview**, in both lists. An ordered list of near-identical
+  filenames is still hard to read; a picture fixes what ordering alone does not.
+
+## 0.1.12
+
+- **Editing a job now loads that job's own levelling and timelapse choices.** The form used to
+  keep whatever it was last set to, so editing the time on a print that levels the bed could
+  silently stop it levelling, with nothing on screen to say so. *Schedule another like this*
+  had the same fault, where it mattered more.
+- **The setting for how many finished jobs to keep no longer affects the projection.** It was
+  deciding both how many rows you see and how much history the levelling aware estimate had to
+  work with, so turning the list down to a couple of rows quietly disabled the estimate. The
+  scheduler now keeps enough of its own history whatever the list is set to.
+
+## 0.1.11
 
 - **A job is projected against prints that made the same levelling choice.** Levelling costs
   about six and a half minutes on the machine this was measured on, which is most of the
@@ -29,7 +80,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 - *Finished jobs to keep* now says in its own hint that those records are what carries the
   levelling labels, so setting it to 0 projects every job from one figure again.
 
-## 0.1.10 (in development)
+## 0.1.10
 
 - **Settled jobs can be removed, one at a time or all at once.** Clear the list means clear
   everything *settled*, and nothing scheduled is ever touched: that single property is what
@@ -55,7 +106,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   is drawn in CSS, in `currentColor`, so it sits where the search field's own clear button
   sits and is right in both light and dark.
 
-## 0.1.9 (in development)
+## 0.1.9
 
 - **The file list can be sorted.** Newest first stays the default, with oldest first, last
   printed, and name either way round beside it. Every order breaks its ties on the name, so the
@@ -65,7 +116,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   printer nothing. The choice is not remembered between visits; newest first is the right
   default often enough that it did not seem worth storing.
 
-## 0.1.8 (in development)
+## 0.1.8
 
 - **The file picker is a list rather than a dropdown.** An alphabetical `<select>` put the file
   you sliced a minute ago wherever its name happened to fall, which on a printer holding a
@@ -87,7 +138,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   `<img>` cannot set a header. A browser logged into Moonraker authenticates the same way for
   an image as for a fetch, and on a trusted client nothing changes.
 
-## 0.1.7 (in development)
+## 0.1.7
 
 - **A file's material, colour and temperature are read on printers that are not the one this
   was written against.** Moonraker writes a standard set of metadata fields for any slicer, and
@@ -114,7 +165,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 - A multi slot file on such a printer says once, quietly, that the file's own tool numbering is
   used as it was sliced, which is the one case where a reader might reasonably wonder.
 
-## 0.1.6 (in development)
+## 0.1.6
 
 - **The projected finish is a range, not a time.** Twenty runs off the printer show setup time
   arriving in two clusters, one around two or three minutes and one around ten, with nothing in
@@ -142,7 +193,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 - Not enough toolheads of one material now says how many the file needs and how many the
   printer has, rather than reporting the first slot that found nowhere to go.
 
-## 0.1.5 (in development)
+## 0.1.5
 
 - **Multi tool files can be scheduled.** They were refused because a wrong tool assignment wastes
   the whole print, and until 0.1.1 the scheduler had no way to make a right one. It has since,
@@ -159,7 +210,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   so a printer that answers differently later cancels the job with a reason rather than sending
   a name its parser would truncate.
 
-## 0.1.4 (in development)
+## 0.1.4
 
 - **The setup time is quoted as a range when the printer varies.** It was being shown as a single
   figure, which reads as a promise: *about 10m of setup*. It is a median over prints made under
@@ -176,7 +227,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 - The projected finish and the overlap warning still use the middle of the range rather than the
   worst case, so the clock time on the page is one number rather than two.
 
-## 0.1.3 (in development)
+## 0.1.3
 
 - **Fixed: a projected finish that ignored the printer's own setup time.** The page was quoting
   the slicer's estimate as a finish time. The slicer measures printing; it knows nothing about
@@ -197,7 +248,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   32 second setup and dragged the figure to a third of the truth.
 - The schedule endpoint reads the printer's history once per request instead of twice.
 
-## 0.1.2 (in development)
+## 0.1.2
 
 - **Fixed: one cancelled print stopped every job scheduled after it.** The printer reports a
   finished or cancelled print until somebody dismisses it on the screen, and the scheduler was
@@ -216,7 +267,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   sent, which is worse than useless: it is dead code that reads as live, and the next person to
   debug a bad toolhead would have started there. The start is one command now.
 
-## 0.1.1 (in development)
+## 0.1.1
 
 - **Fixed: a print could be started on the wrong toolhead.** A file numbers its filaments by
   slicer slot and the printer numbers its hardware by toolhead, and the scheduler was letting
@@ -229,7 +280,7 @@ SPDX-License-Identifier: AGPL-3.0-or-later
   loaded.
 - The file picker says *slot 0* rather than *T0*, because those were never the same thing.
 
-## 0.1.0 (in development)
+## 0.1.0
 
 First version. Not released: no tag has been pushed and nothing has been published.
 

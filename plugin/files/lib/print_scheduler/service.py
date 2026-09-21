@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from print_scheduler.gcode_files import FileRow, FileSummary, file_rows, summarise
+from print_scheduler.heartbeat import A_LONG_SILENCE_SECONDS, Heartbeat
 from print_scheduler.history import SetupTimes, measure_setup_times, verdict_for
 from print_scheduler.jobs import (
     Job,
@@ -169,10 +170,20 @@ class ScheduleService:
     Every change goes through here and is on disk before the call returns.
     """
 
-    def __init__(self, store: ScheduleStore, printer: Printer, user_vars_path: Path) -> None:
+    def __init__(
+        self,
+        store: ScheduleStore,
+        printer: Printer,
+        user_vars_path: Path,
+        heartbeat: Heartbeat | None = None,
+    ) -> None:
         self._store = store
         self._printer = printer
         self._user_vars_path = user_vars_path
+        self._heartbeat = heartbeat
+        # Asked once, on the first tick, because that is the first moment a clock is handed in
+        # and the last moment before anything could be started.
+        self._asked_about_the_silence = False
         self._lock = threading.Lock()
         self._jobs: list[Job] = store.load()
 
@@ -213,8 +224,53 @@ class ScheduleService:
     def tick(self, now: float) -> None:
         """Settle whatever has come due. Called on a timer, and never from a web handler."""
         with self._lock:
+            self._hold_what_a_long_silence_left_behind(now)
             settled = run_tick(self._jobs, self._printer, now, self.tolerance_seconds())
             self._remember(settled)
+        if self._heartbeat is not None:
+            self._heartbeat.mark(now)
+
+    def _hold_what_a_long_silence_left_behind(self, now: float) -> None:
+        """Once per run: if the scheduler was away a long time, nothing waiting may fire yet.
+
+        Held before anything is settled, in the same tick, because the first tick happens as
+        the service comes up and a job that came due during the silence would otherwise be
+        started by it.
+
+        Only jobs still waiting are held. A job that already ran is history and a cancelled one
+        is finished; neither is a promise about the future, which is the only thing at stake.
+        """
+        if self._asked_about_the_silence or self._heartbeat is None:
+            return
+        self._asked_about_the_silence = True
+        away = self._heartbeat.silence_before(now)
+        if away < A_LONG_SILENCE_SECONDS:
+            return
+        waiting = [job for job in self._jobs if job.state is JobState.SCHEDULED and not job.held]
+        if not waiting:
+            return
+        held = {job.job_id for job in waiting}
+        print(
+            f"the scheduler was away for {away / 3600:.0f} hours; "
+            f"holding {len(held)} scheduled job(s) until somebody confirms them",
+            flush=True,
+        )
+        self._remember(
+            [replace(job, held=True) if job.job_id in held else job for job in self._jobs]
+        )
+
+    def release_held_jobs(self) -> int:
+        """Let every held job stand again. Returns how many were released.
+
+        All at once and never one at a time. The question a hold asks is whether the schedule
+        as a whole still reflects what somebody wants, and answering it job by job would make a
+        person confirm six promises to get at the one they care about.
+        """
+        with self._lock:
+            held = [job for job in self._jobs if job.held]
+            if held:
+                self._remember([replace(job, held=False) for job in self._jobs])
+            return len(held)
 
     def add(self, request: JobRequest, now: float) -> Job:
         summary = self._vet(request, now)

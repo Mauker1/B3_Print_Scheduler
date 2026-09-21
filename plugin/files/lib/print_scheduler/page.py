@@ -139,6 +139,7 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 
 <section>
 <h2>Scheduled</h2>
+<div id="held-notice"></div>
 <div id="pending"><p class="quiet">Loading...</p></div>
 </section>
 
@@ -463,6 +464,10 @@ function renderJob(job) {
     }
     body.appendChild(element("div", "facts", describeFinish(job, job.setup)));
   }
+  if (job.held) {
+    body.appendChild(element("p", "warn",
+      "Waiting for you to confirm it still stands. It will not start until you do."));
+  }
   if (job.overlaps_with) {
     body.appendChild(element("p", "warn",
       "An earlier job is projected to still be printing when this one is due, so this one " +
@@ -521,6 +526,7 @@ function renderJobs() {
     return job.state === "started" || job.state === "cancelled";
   }).sort(byNewestSettledFirst);
 
+  renderHeldNotice(pending.filter(function (job) { return job.held; }));
   replaceChildren(document.getElementById("pending"),
     pending.length ? pending.map(renderJob) : [element("p", "quiet", "Nothing scheduled.")]);
   replaceChildren(document.getElementById("settled"),
@@ -657,6 +663,37 @@ function clearTheSettledList() {
   state.armedToClear = false;
   if (disarmTimer) { clearTimeout(disarmTimer); disarmTimer = null; }
   postJson("./jobs/forget-settled", {})
+    .then(loadJobs)
+    .catch(function (problem) {
+      showProblem(document.getElementById("form-problem"), problem.message);
+    });
+}
+
+// The scheduler can stop running without anybody deciding that it should: the daemon
+// deactivates a plugin that breaks Klipper or Moonraker, a printer sits switched off for a
+// fortnight, somebody uninstalls and the schedule survives because the platform keeps a
+// plugin's data on purpose. In all three it comes back holding promises nobody has looked at
+// since, so it asks once rather than acting on them.
+function renderHeldNotice(held) {
+  var target = document.getElementById("held-notice");
+  if (!held.length) { replaceChildren(target, []); return; }
+  var notice = element("div", "warn");
+  notice.appendChild(element("p", null,
+    held.length === 1
+      ? "The scheduler was not running for a while, so this job has not been started."
+      : "The scheduler was not running for a while, so these " + held.length +
+        " jobs have not been started."));
+  notice.appendChild(element("p", "quiet",
+    "Nothing waiting will start until you confirm the schedule still says what you want. " +
+    "A job whose time has already gone will then be cancelled and say so."));
+  notice.appendChild(actionButton(
+    held.length === 1 ? "This job still stands" : "These jobs still stand",
+    releaseTheHeldJobs));
+  replaceChildren(target, [notice]);
+}
+
+function releaseTheHeldJobs() {
+  postJson("./jobs/release", {})
     .then(loadJobs)
     .catch(function (problem) {
       showProblem(document.getElementById("form-problem"), problem.message);

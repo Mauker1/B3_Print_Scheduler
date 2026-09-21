@@ -18,6 +18,11 @@ from print_scheduler.gcode_files import (
     summarise,
     tools_used,
 )
+from print_scheduler.heartbeat import (
+    A_LONG_SILENCE_SECONDS,
+    MARK_NO_MORE_OFTEN_THAN_SECONDS,
+    Heartbeat,
+)
 from print_scheduler.history import (
     SetupTime,
     SetupTimes,
@@ -74,6 +79,7 @@ from print_scheduler.server import (
     SchedulerRequestHandler,
     SchedulerServer,
     build_server,
+    version_in,
 )
 from print_scheduler.service import (
     LABELS_WORTH_KEEPING,
@@ -106,6 +112,7 @@ __all__ = [
     "RUNNING_PRINT_STATES",
     "SERVICE_NAME",
     "SERVICE_VERSION",
+    "version_in",
     "STATES_MEANING_OUR_PRINT_RAN",
     "UNCLEARED_BED_STATES",
     "Action",
@@ -150,7 +157,10 @@ __all__ = [
     "main",
     "new_job_id",
     "normalise_colour",
+    "A_LONG_SILENCE_SECONDS",
+    "Heartbeat",
     "LABELS_WORTH_KEEPING",
+    "MARK_NO_MORE_OFTEN_THAN_SECONDS",
     "overlapping_job_ids",
     "payload_for",
     "plan_tools",

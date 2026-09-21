@@ -1,7 +1,7 @@
 {
   "name": "print-scheduler",
   "title": "Print Scheduler",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "Pick a sliced file that is already on the printer, pick when it should start, and the printer starts it for you at that time.\n\nThe scheduler refuses far more often than it starts. It will not start a job on a printer that is not idle, it will not start a job whose time has already passed, and it records a reason for every job it did not start. It cannot see the bed, so the person scheduling a job is the one promising the bed will be clear.",
   "tagline": "Start a print at a time you choose.",
   "category": "printing",

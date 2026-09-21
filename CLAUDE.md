@@ -51,9 +51,17 @@ templates and places the files, wires the symlinks, and restarts the named servi
   symlink. Teardown removes the plugin's own files and leaves the user's data intact.
 - **The printer is never left broken.** Every change keeps the printer usable. The daemon's
   auto-deactivate safety net peels off a plugin that breaks Klipper or Moonraker; do not defeat it.
-- **`manifest.json` is the release contract.** Bump its `version` to cut a release. Do not hand-edit
-  `index.json`, the `.atom.json`, `index.json.sig`, or anything under `dist/`: those are generated and
-  signed by the `b3-builder` CI Action.
+- **`manifest.json` is the release contract.** Bump its `version` to cut a release, and bump it
+  there only: the service reads its own version out of the manifest, so there is no second copy to
+  keep in step. Do not hand-edit `index.json`, the `.atom.json`, `index.json.sig`, or anything
+  under `dist/`: those are generated and signed by the `b3-builder` CI Action.
+
+- **Every version bump writes its own `plugin/doc/CHANGELOG.md` entry, in the same change.** Not
+  afterwards and not in a batch later: the reasons are legible while the work is fresh and
+  guesswork once it is not. The entry says what changed for somebody using the plugin and why it
+  was worth changing, not which files moved. A version with no entry is an unfinished change, and
+  no heading is ever left marked as in development, because by the time it is committed it is
+  released.
 
 ## The non-negotiables
 
