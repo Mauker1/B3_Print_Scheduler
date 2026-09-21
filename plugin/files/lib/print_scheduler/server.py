@@ -31,7 +31,7 @@ from print_scheduler.service import (
 )
 
 SERVICE_NAME = "print-scheduler"
-SERVICE_VERSION = "0.1.12"
+SERVICE_VERSION = "0.1.13"
 
 JSON_CONTENT_TYPE = "application/json"
 # A schedule entry is a filename and a few flags. Anything larger is not one.

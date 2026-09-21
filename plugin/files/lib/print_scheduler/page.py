@@ -80,8 +80,13 @@ button.link { border: 0; padding: 0.2rem 0.35rem; text-decoration: underline; fo
   gap: 0.6rem; }
 .heading-row h2 { margin-bottom: 0.6rem; }
 button.danger { border-color: #c0392b; color: #c0392b; }
-.job { border-top: 1px solid var(--line); padding: 0.7rem 0; }
+.job { border-top: 1px solid var(--line); padding: 0.7rem 0;
+  display: flex; gap: 0.6rem; align-items: flex-start; }
 .job:first-child { border-top: 0; }
+.job img, .job .noshot { width: 3.2rem; height: 3.2rem; flex: 0 0 3.2rem; border-radius: 0.3rem;
+  object-fit: contain; background: rgba(128,128,128,0.12); }
+/* Without the zero minimum a long filename refuses to wrap and pushes the row sideways. */
+.job-body { flex: 1 1 auto; min-width: 0; }
 .job-title { font-weight: 600; overflow-wrap: anywhere; }
 .job-actions { margin-top: 0.35rem; display: flex; gap: 0.3rem; flex-wrap: wrap; }
 .tools { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.5rem 0; }
@@ -416,32 +421,57 @@ function describeChoices(job) {
   return parts.length ? parts.join(", ") : null;
 }
 
+// The job payload does not carry the file's details, and asking the printer for them on every
+// jobs poll would be a round trip every few seconds. The file list already knows, so a job
+// borrows from it. A file that has gone from the printer since it was scheduled gets the
+// placeholder, which is the honest answer to a preview nobody can produce any more.
+function fileBehind(filename) {
+  for (var index = 0; index < state.files.length; index += 1) {
+    if (state.files[index].filename === filename) { return state.files[index]; }
+  }
+  return null;
+}
+
+function jobThumbnail(job) {
+  var file = fileBehind(job.filename);
+  if (!file || !file.has_thumbnail) { return element("span", "noshot"); }
+  var picture = document.createElement("img");
+  picture.loading = "lazy";
+  picture.alt = "";
+  picture.src = "./thumbnail?filename=" + encodeURIComponent(job.filename);
+  return picture;
+}
+
 function renderJob(job) {
   var card = element("div", "job");
-  card.appendChild(element("div", "job-title", job.filename));
-  card.appendChild(element("div", "quiet", jobHeadline(job)));
+  card.appendChild(jobThumbnail(job));
+  // Everything else goes beside the picture rather than under it.
+  var body = element("div", "job-body");
+  card.appendChild(body);
+  body.appendChild(element("div", "job-title", job.filename));
+  body.appendChild(element("div", "quiet", jobHeadline(job)));
 
   var choices = describeChoices(job);
-  if (choices) { card.appendChild(element("div", "quiet", choices)); }
+  if (choices) { body.appendChild(element("div", "quiet", choices)); }
 
   if (job.state === "scheduled" && job.projected_finish) {
     var printing = howLong(job.estimated_seconds);
     var setup = describeSetup(job.setup);
     if (setup && printing) {
-      card.appendChild(element("div", "facts",
+      body.appendChild(element("div", "facts",
         "about " + setup + " of setup, then " + printing + " of printing"));
     }
-    card.appendChild(element("div", "facts", describeFinish(job, job.setup)));
+    body.appendChild(element("div", "facts", describeFinish(job, job.setup)));
   }
   if (job.overlaps_with) {
-    card.appendChild(element("p", "warn",
+    body.appendChild(element("p", "warn",
       "An earlier job is projected to still be printing when this one is due, so this one " +
       "would be cancelled as busy."));
   }
   if (job.printer_says) {
-    card.appendChild(element("div", "facts", "The printer says: " + job.printer_says));
+    body.appendChild(element("div", "facts", "The printer says: " + job.printer_says));
   } else if (job.state === "started") {
-    card.appendChild(element("div", "facts", "The printer has no record of how it went."));
+    body.appendChild(element("div", "facts", "The printer has no record of how it went."));
   }
 
   var actions = element("div", "job-actions");
@@ -453,7 +483,7 @@ function renderJob(job) {
     actions.appendChild(actionButton("Cancel", function () { cancelJob(job); }));
   }
   actions.appendChild(actionButton("Schedule another like this", function () { copyInto(job); }));
-  card.appendChild(actions);
+  body.appendChild(actions);
   return card;
 }
 
@@ -464,13 +494,32 @@ function actionButton(label, whenClicked) {
   return button;
 }
 
+// Both lists were in the order jobs happened to be created, which is not what either list is
+// for. The scheduled one existed to say what happens next and put a job re-created after a
+// failure at the bottom although it was due first. The settled one reversed that, which looks
+// like newest first often enough to be trusted and then quietly is not.
+function byJobId(a, b) {
+  return a.job_id < b.job_id ? -1 : (a.job_id > b.job_id ? 1 : 0);
+}
+
+function bySoonestFirst(a, b) { return a.start_at - b.start_at || byJobId(a, b); }
+
+// When a job settled: when it started, or for one that never did, when it was due. This is
+// deliberately the same key the service trims on, so the row that disappears when the list is
+// capped is always the one at the bottom of what you can see.
+function whenItSettled(job) { return job.decided_at || job.start_at; }
+
+function byNewestSettledFirst(a, b) {
+  return whenItSettled(b) - whenItSettled(a) || byJobId(b, a);
+}
+
 function renderJobs() {
   var pending = state.jobs.filter(function (job) {
     return job.state === "scheduled" || job.state === "starting";
-  });
+  }).sort(bySoonestFirst);
   var settled = state.jobs.filter(function (job) {
     return job.state === "started" || job.state === "cancelled";
-  }).reverse();
+  }).sort(byNewestSettledFirst);
 
   replaceChildren(document.getElementById("pending"),
     pending.length ? pending.map(renderJob) : [element("p", "quiet", "Nothing scheduled.")]);
@@ -657,6 +706,9 @@ function loadFiles() {
   return api("./files").then(function (payload) {
     state.files = payload.files || [];
     renderFiles();
+    // The job rows take their pictures from this list, and the two requests land in whichever
+    // order they land in, so the jobs are redrawn once the files are known.
+    renderJobs();
   }).catch(function (problem) {
     showProblem(document.getElementById("form-problem"), problem.message);
   });

@@ -77,6 +77,13 @@ A_TIME_WELL_IN_THE_FUTURE = "2030-06-01T06:00"
 ONE_PIXEL_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
 )
+# The shared fixtures carry no thumbnails, because the modules that use them are not about
+# pictures. The page is, so the harness adds one: two sizes, so the largest actually gets
+# chosen rather than the only one passing by default.
+THUMBNAILS_THE_SLICER_WROTE = [
+    {"width": 32, "height": 32, "relative_path": ".thumbs/small.png"},
+    {"width": 300, "height": 300, "relative_path": ".thumbs/large.png"},
+]
 MULTI_TOOL_FILE = "04_XYZ_Cali_PLA_14m25s.gcode"
 SLOTS_IN_THE_MULTI_TOOL_FILE = 4
 PATIENCE_MILLISECONDS = 5000
@@ -143,6 +150,7 @@ def check_the_page_before_anything_touches_it(page: Page) -> None:
     wait_for_the_file_list(page)
     check("the printer line says something", text_of(page, "#printer-line") != "", True)
     check("the file list is populated", page.locator("#file-list .file").count() > 0, True)
+    check("every file shows its preview", page.locator("#file-list .file img").count() > 0, True)
     check("nothing is scheduled", "Nothing scheduled" in text_of(page, "#pending"), True)
     check("the settled list is empty", "Nothing yet" in text_of(page, "#settled"), True)
     check("scheduling is refused until asked properly", page.is_disabled("#save"), True)
@@ -298,10 +306,61 @@ def check_copying_carries_the_choices_too(page: Page) -> None:
     check("but it is a new job, not an edit", page.input_value("#start-at"), "")
 
 
+def schedule_one(page: Page, filename: str, when: str) -> None:
+    # Cleared rather than assumed empty: an earlier check may have left a filter in it, and a
+    # filtered out file is a timeout with a misleading message.
+    page.fill("#file-search", "")
+    page.wait_for_selector(
+        f'#file-list .file[data-filename="{filename}"]', timeout=PATIENCE_MILLISECONDS
+    )
+    pick_the_file(page, filename)
+    page.fill("#start-at", when)
+    page.check("#bed-clear")
+    page.wait_for_selector("#save:not([disabled])", timeout=PATIENCE_MILLISECONDS)
+    page.click("#save")
+    page.wait_for_selector(f'#pending .job:has-text("{filename}")', timeout=PATIENCE_MILLISECONDS)
+
+
+def cancel_one(page: Page, filename: str) -> None:
+    page.click(f'#pending .job:has-text("{filename}") button:has-text("Cancel")')
+    page.wait_for_selector(f'#settled .job:has-text("{filename}")', timeout=PATIENCE_MILLISECONDS)
+
+
+def check_the_lists_are_in_time_order(page: Page) -> None:
+    """A list called Scheduled has to say what happens next, not what was typed last.
+
+    Found on hardware: a job re-created after a failure sat at the bottom of the queue
+    although it was due first. The settled list had the same fault in reverse, and that one is
+    the worse of the two, because reverse creation order looks like newest first often enough
+    to be trusted.
+    """
+    print("\nThe order of the two lists")
+    schedule_one(page, BENCHY, "2030-06-03T06:00")
+    schedule_one(page, CHINESE_NAME, "2030-06-02T06:00")
+    check(
+        "the job due first is listed first, not the one added first",
+        page.locator("#pending .job-title").all_inner_texts(),
+        [CHINESE_NAME, BENCHY],
+    )
+    check("and every job row carries the file's picture",
+          page.locator("#pending .job img").count(), 2)
+
+    # Settled the other way round on purpose: the job created first is cancelled last, so
+    # reverse creation order and newest settled first disagree about which comes top.
+    cancel_one(page, CHINESE_NAME)
+    cancel_one(page, BENCHY)
+    check(
+        "the job that settled most recently is listed first",
+        page.locator("#settled .job-title").all_inner_texts(),
+        [BENCHY, CHINESE_NAME],
+    )
+    check("nothing is left scheduled", "Nothing scheduled" in text_of(page, "#pending"), True)
+
+
 def check_a_multi_tool_file(page: Page, printer: StandInPrinter) -> None:
     print("\nA multi tool file")
     printer.holds = frozenset({*printer.holds, MULTI_TOOL_FILE})
-    printer.describes = dict(FOUR_TOOL_METADATA)
+    printer.describes = {**FOUR_TOOL_METADATA, "thumbnails": THUMBNAILS_THE_SLICER_WROTE}
     page.reload()
     wait_for_the_file_list(page)
     pick_the_file(page, MULTI_TOOL_FILE)
@@ -360,6 +419,7 @@ def run_every_check(page: Page, printer: StandInPrinter, base_url: str) -> None:
     check_cancelling(page)
     check_copying_carries_the_choices_too(page)
     check_clearing_the_settled_list(page)
+    check_the_lists_are_in_time_order(page)
     check_a_multi_tool_file(page, printer)
     check_a_file_whose_material_is_not_loaded(page, printer)
 
@@ -388,7 +448,7 @@ def report() -> int:
 
 def main() -> int:
     printer = StandInPrinter(
-        describes=dict(WHITE_PLA_METADATA),
+        describes={**WHITE_PLA_METADATA, "thumbnails": THUMBNAILS_THE_SLICER_WROTE},
         remembers=PRINTS_THAT_FINISHED,
         # The Chinese named file is the newer one and the Benchy sorts first by name, so
         # newest and alphabetical are genuinely different orders rather than the same
