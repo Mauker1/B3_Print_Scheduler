@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 from print_scheduler import (
+    Job,
     JobRequest,
     JobState,
     LoadedFilament,
@@ -24,7 +25,9 @@ from print_scheduler import (
     overlapping_job_ids,
     payload_for,
     projected_finish,
+    read_settled_kept,
     read_tolerance_seconds,
+    trimmed_to,
 )
 from printer_stand_in import (
     BENCHY,
@@ -336,3 +339,87 @@ def test_a_printer_that_cannot_be_reached_still_renders_the_schedule(tmp_path: P
     payload = service.schedule_payload()
     assert payload["setup"] is None
     assert payload["jobs"][0]["projected_finish"] == SIX_IN_THE_MORNING + BENCHY_SECONDS
+
+
+def a_settled_job(**overrides: object) -> Job:
+    base = Job(
+        job_id=str(overrides.pop("job_id", "settled")),
+        filename=BENCHY,
+        start_at=SIX_IN_THE_MORNING,
+        state=JobState.CANCELLED,
+        decided_at=SIX_IN_THE_MORNING,
+    )
+    return replace(base, **overrides)  # type: ignore[arg-type]
+
+
+def test_a_job_that_has_not_run_is_never_trimmed_however_low_the_cap() -> None:
+    # The list is a promise about the future. Quietly forgetting one would be the worst thing
+    # this page could do, so the cap cannot reach a job that has not settled.
+    pending = Job(job_id="pending", filename=BENCHY, start_at=SIX_IN_THE_MORNING)
+    kept = trimmed_to([pending, a_settled_job()], 0)
+    assert [job.job_id for job in kept] == ["pending"]
+
+
+def test_the_oldest_settled_jobs_go_first() -> None:
+    jobs = [
+        a_settled_job(job_id="oldest", decided_at=100.0),
+        a_settled_job(job_id="newest", decided_at=300.0),
+        a_settled_job(job_id="middle", decided_at=200.0),
+    ]
+    kept = trimmed_to(jobs, 2)
+    assert {job.job_id for job in kept} == {"newest", "middle"}
+    # The order on the page does not reshuffle around a trim.
+    assert [job.job_id for job in kept] == ["newest", "middle"]
+
+
+def test_a_list_under_the_cap_is_left_exactly_as_it_was() -> None:
+    jobs = [a_settled_job(job_id="one"), a_settled_job(job_id="two")]
+    assert trimmed_to(jobs, 25) == jobs
+
+
+def test_the_cap_applies_itself_whenever_the_schedule_is_written(tmp_path: Path) -> None:
+    (tmp_path / "user_vars.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": 1}))
+    service = a_service(tmp_path)
+    first = service.add(a_request(), LAST_NIGHT)
+    second = service.add(a_request(start_at=SIX_IN_THE_MORNING + 3600), LAST_NIGHT)
+    service.cancel(first.job_id, LAST_NIGHT)
+    service.cancel(second.job_id, LAST_NIGHT + 1)
+    remaining = [job.job_id for job in service.jobs()]
+    assert remaining == [second.job_id]
+
+
+def test_an_unset_cap_is_the_default_rather_than_nothing_kept(tmp_path: Path) -> None:
+    assert read_settled_kept(tmp_path / "absent.json") == 25
+    (tmp_path / "nonsense.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": "many"}))
+    assert read_settled_kept(tmp_path / "nonsense.json") == 25
+    (tmp_path / "negative.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": -3}))
+    assert read_settled_kept(tmp_path / "negative.json") == 25
+    # Zero is a real answer: keep nothing once a job has settled.
+    (tmp_path / "none.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": 0}))
+    assert read_settled_kept(tmp_path / "none.json") == 0
+
+
+def test_a_settled_job_can_be_forgotten(tmp_path: Path) -> None:
+    service = a_service(tmp_path)
+    job = service.add(a_request(), LAST_NIGHT)
+    service.cancel(job.job_id, LAST_NIGHT)
+    service.forget(job.job_id)
+    assert service.jobs() == []
+
+
+def test_a_job_that_has_not_run_cannot_be_forgotten(tmp_path: Path) -> None:
+    service = a_service(tmp_path)
+    job = service.add(a_request(), LAST_NIGHT)
+    with pytest.raises(ScheduleRejectedError, match="Cancel it first"):
+        service.forget(job.job_id)
+    assert len(service.jobs()) == 1
+
+
+def test_clearing_the_settled_list_leaves_everything_scheduled_alone(tmp_path: Path) -> None:
+    # The one property that makes the button safe to press without reading it.
+    service = a_service(tmp_path)
+    doomed = service.add(a_request(), LAST_NIGHT)
+    service.cancel(doomed.job_id, LAST_NIGHT)
+    pending = service.add(a_request(start_at=SIX_IN_THE_MORNING + 7200), LAST_NIGHT)
+    assert service.forget_every_settled_job() == 1
+    assert [job.job_id for job in service.jobs()] == [pending.job_id]

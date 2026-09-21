@@ -206,12 +206,32 @@ own, so a skew is visible rather than silent.
 
 This matters more than it sounds. The printer this was written against runs on UTC.
 
+## The list of settled jobs
+
+A job that has run or been cancelled stays in the list so you can see what happened. Each one
+can be removed, and the whole settled list can be cleared in two clicks, the second of which
+says how many will go.
+
+Clearing means clearing what has **settled**. Nothing you have scheduled is ever removed by it,
+whatever else is going on, because a list of promises about the future is the one thing this
+page must not quietly forget.
+
+The list also trims itself to the newest few, so it does not grow forever without anyone
+clicking anything. How many it keeps is a setting.
+
+What goes is our record of what the scheduler decided. The printer's own history of what it
+printed is untouched, and was always the authority on that.
+
 ## Settings
 
 **Minutes a job may start late** (default 5). This is a retry budget, not permission to start late.
 A tick is not instantaneous, Moonraker can be briefly unreachable while the printer comes up, and
 Klipper can sit in startup for a few seconds. All three are worth another try or two. A printer that
 is busy is never waited for, whatever this is set to.
+
+**Finished jobs to keep** (default 25). The settled list is trimmed to this many, newest first,
+whenever the schedule changes. Jobs that have not run yet are never trimmed. Zero keeps nothing
+once a job has settled.
 
 ## What has been tested, and where
 

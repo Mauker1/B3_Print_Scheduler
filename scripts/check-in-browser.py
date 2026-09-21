@@ -235,6 +235,25 @@ def check_cancelling(page: Page) -> None:
     check("and why", "you cancelled it" in text_of(page, "#settled"), True)
 
 
+def check_clearing_the_settled_list(page: Page) -> None:
+    print("\nClearing the settled list")
+    check("a settled job offers to be removed", page.is_visible("#settled button"), True)
+    check("and the list offers to be cleared", "Clear the list" in text_of(page, "#clear-settled"),
+          True)
+    page.click("#clear-settled button")
+    page.wait_for_timeout(150)
+    check(
+        "one click only arms it, saying what the next one does",
+        "Really remove 1?" in text_of(page, "#clear-settled"),
+        True,
+    )
+    check("and nothing has gone yet", "Did not run" in text_of(page, "#settled"), True)
+    page.click("#clear-settled button")
+    page.wait_for_selector("#settled:has-text('Nothing yet')", timeout=PATIENCE_MILLISECONDS)
+    check("the second click empties it", "Nothing yet" in text_of(page, "#settled"), True)
+    check("and the button goes with it", text_of(page, "#clear-settled"), "")
+
+
 def check_a_multi_tool_file(page: Page, printer: StandInPrinter) -> None:
     print("\nA multi tool file")
     printer.holds = frozenset({*printer.holds, MULTI_TOOL_FILE})
@@ -294,6 +313,7 @@ def run_every_check(page: Page, printer: StandInPrinter, base_url: str) -> None:
     check_the_bed_promise_is_required(page)
     check_scheduling(page)
     check_cancelling(page)
+    check_clearing_the_settled_list(page)
     check_a_multi_tool_file(page, printer)
     check_a_file_whose_material_is_not_loaded(page, printer)
 

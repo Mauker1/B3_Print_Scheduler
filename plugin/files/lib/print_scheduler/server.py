@@ -31,7 +31,7 @@ from print_scheduler.service import (
 )
 
 SERVICE_NAME = "print-scheduler"
-SERVICE_VERSION = "0.1.9"
+SERVICE_VERSION = "0.1.10"
 
 JSON_CONTENT_TYPE = "application/json"
 # A schedule entry is a filename and a few flags. Anything larger is not one.
@@ -57,6 +57,9 @@ class SchedulerRequestHandler(BaseHTTPRequestHandler):
     sys_version = ""
     protocol_version = "HTTP/1.1"
 
+    # Whatever arrived with a POST, read off the socket once before any route sees it.
+    _body: bytes = b""
+
     def schedule(self) -> ScheduleService:
         return cast(SchedulerServer, self.server).service
 
@@ -64,7 +67,19 @@ class SchedulerRequestHandler(BaseHTTPRequestHandler):
         self._dispatch(GET_ROUTES)
 
     def do_POST(self) -> None:  # noqa: N802  the name belongs to BaseHTTPRequestHandler
+        # Drained here, before the route runs, and never in the route itself. This connection
+        # is kept alive, so a body left unread stays in the socket and the next request on the
+        # same connection is parsed starting from it: the server answered a real POST and then
+        # rejected the following GET as an unsupported method called `{}GET`. Reading it once
+        # here means no handler can reintroduce that by not caring about its body.
+        self._body = self._read_the_body()
         self._dispatch(POST_ROUTES)
+
+    def _read_the_body(self) -> bytes:
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length <= 0:
+            return b""
+        return self.rfile.read(min(length, MAXIMUM_BODY_BYTES))
 
     def _dispatch(self, routes: dict[str, Route]) -> None:
         requested_path = urlsplit(self.path).path
@@ -85,7 +100,7 @@ class SchedulerRequestHandler(BaseHTTPRequestHandler):
         return parse_qs(urlsplit(self.path).query)
 
     def json_body(self) -> dict[str, Any]:
-        """Read and check the request body."""
+        """Check the request body, which was already read off the socket by do_POST."""
         declared = self.headers.get("Content-Type", "").split(";")[0].strip()
         if declared != JSON_CONTENT_TYPE:
             raise BadRequestError(f"this endpoint takes {JSON_CONTENT_TYPE}")
@@ -93,7 +108,7 @@ class SchedulerRequestHandler(BaseHTTPRequestHandler):
         if length <= 0 or length > MAXIMUM_BODY_BYTES:
             raise BadRequestError("the request needs a body, and a small one")
         try:
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            payload = json.loads(self._body.decode("utf-8"))
         except (ValueError, UnicodeDecodeError) as unreadable:
             raise BadRequestError(f"the body is not valid JSON: {unreadable}") from unreadable
         if not isinstance(payload, dict):
@@ -236,6 +251,25 @@ def cancel_job(handler: SchedulerRequestHandler) -> None:
     handler.respond_json(HTTPStatus.OK, handler.schedule().cancel(job_id, time.time()).to_dict())
 
 
+def forget_job(handler: SchedulerRequestHandler) -> None:
+    """Remove one settled job from our list.
+
+    Ours, not the printer's: its own history of what it printed is untouched and always was
+    the authority on that. This list is a record of what the scheduler decided.
+    """
+    job_id = str(handler.json_body().get("job_id", ""))
+    if not job_id:
+        raise BadRequestError("name a job")
+    handler.schedule().forget(job_id)
+    handler.respond_json(HTTPStatus.OK, {"forgotten": job_id})
+
+
+def forget_settled_jobs(handler: SchedulerRequestHandler) -> None:
+    """Empty the settled list. Nothing scheduled is touched, which is what makes it safe."""
+    gone = handler.schedule().forget_every_settled_job()
+    handler.respond_json(HTTPStatus.OK, {"forgotten": gone})
+
+
 GET_ROUTES: dict[str, Route] = {
     "/": serve_schedule_page,
     "/health": serve_health,
@@ -250,6 +284,8 @@ POST_ROUTES: dict[str, Route] = {
     "/jobs": add_job,
     "/jobs/update": update_job,
     "/jobs/cancel": cancel_job,
+    "/jobs/forget": forget_job,
+    "/jobs/forget-settled": forget_settled_jobs,
 }
 
 

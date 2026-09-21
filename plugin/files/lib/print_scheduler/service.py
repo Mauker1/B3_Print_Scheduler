@@ -40,6 +40,10 @@ DEFAULT_TOLERANCE_MINUTES = 5.0
 SECONDS_PER_MINUTE = 60.0
 TOLERANCE_VARIABLE = "START_TOLERANCE_MINUTES"
 
+SETTLED_KEPT_VARIABLE = "SETTLED_JOBS_KEPT"
+DEFAULT_SETTLED_KEPT = 25
+SETTLED_STATES = (JobState.STARTED, JobState.CANCELLED)
+
 
 class ScheduleRejectedError(Exception):
     """The schedule will not take this job, with a reason meant to be shown to a person."""
@@ -75,6 +79,38 @@ def read_tolerance_seconds(user_vars_path: Path) -> float:
     except (OSError, ValueError, KeyError, TypeError):
         minutes = DEFAULT_TOLERANCE_MINUTES
     return max(minutes, 0.0) * SECONDS_PER_MINUTE
+
+
+def read_settled_kept(user_vars_path: Path) -> int:
+    """How many settled jobs to keep, from the same file and with the same forgiveness.
+
+    Read afresh rather than at startup, so changing it in the app takes effect without a
+    restart. Zero is a real answer, meaning keep nothing once a job has settled; a negative
+    one is not, and reads as the default.
+    """
+    try:
+        values = json.loads(user_vars_path.read_text(encoding="utf-8"))
+        kept = int(float(values[SETTLED_KEPT_VARIABLE]))
+    except (OSError, ValueError, KeyError, TypeError):
+        return DEFAULT_SETTLED_KEPT
+    return kept if kept >= 0 else DEFAULT_SETTLED_KEPT
+
+
+def trimmed_to(jobs: Sequence[Job], kept: int) -> list[Job]:
+    """Drop the oldest settled jobs past the cap, and nothing else, ever.
+
+    A job that has not run is never dropped by this, whatever the cap says: the list exists to
+    be a promise about the future, and quietly forgetting a promise would be the worst failure
+    this page could have. Order is preserved, so the page does not reshuffle around a trim.
+    """
+    settled = [job for job in jobs if job.state in SETTLED_STATES]
+    if len(settled) <= kept:
+        return list(jobs)
+    # Newest by when they were settled, falling back to when they were due, because a job
+    # cancelled before it ever fired has no decided_at worth trusting.
+    newest = sorted(settled, key=lambda job: (job.decided_at or job.start_at), reverse=True)
+    keeping = {job.job_id for job in newest[:kept]}
+    return [job for job in jobs if job.state not in SETTLED_STATES or job.job_id in keeping]
 
 
 def projected_finish(job: Job, setup_seconds: float | None = None) -> float | None:
@@ -132,6 +168,28 @@ class ScheduleService:
 
     def tolerance_seconds(self) -> float:
         return read_tolerance_seconds(self._user_vars_path)
+
+    def settled_kept(self) -> int:
+        return read_settled_kept(self._user_vars_path)
+
+    def forget(self, job_id: str) -> None:
+        """Remove one settled job from our list. The printer's own history is untouched."""
+        with self._lock:
+            existing = self._find(job_id)
+            if existing.state not in SETTLED_STATES:
+                raise ScheduleRejectedError(
+                    f"this job is {existing.state.value} and has not settled. Cancel it first."
+                )
+            self._remember([job for job in self._jobs if job.job_id != job_id])
+
+    def forget_every_settled_job(self) -> int:
+        """Empty the settled list, and only the settled list. Returns how many went."""
+        with self._lock:
+            keeping = [job for job in self._jobs if job.state not in SETTLED_STATES]
+            gone = len(self._jobs) - len(keeping)
+            if gone:
+                self._remember(keeping)
+            return gone
 
     def tick(self, now: float) -> None:
         """Settle whatever has come due. Called on a timer, and never from a web handler."""
@@ -265,7 +323,9 @@ class ScheduleService:
         return {job.job_id: record for job, record in found if record is not None}
 
     def _remember(self, jobs: Sequence[Job]) -> None:
-        self._jobs = list(jobs)
+        # Every change goes through here, so this is the one place the cap has to be applied
+        # for the list never to grow. It only ever drops settled jobs.
+        self._jobs = trimmed_to(jobs, self.settled_kept())
         self._store.save(self._jobs)
 
     def _find(self, job_id: str) -> Job:

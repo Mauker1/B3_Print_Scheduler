@@ -42,7 +42,17 @@ select, input[type=datetime-local], input[type=search] { width: 100%; padding: 0
   font: inherit; border: 1px solid var(--line); border-radius: 0.35rem; background: transparent;
   color: inherit; }
 .finder { display: flex; gap: 0.4rem; }
-.finder select { width: auto; flex: 0 0 auto; }
+/* The native arrow is drawn against the border box and ignores padding-right, so it ends up
+   hard against the edge while the search field's own clear button sits comfortably inside.
+   Turning the native one off and drawing ours is the only way to place it. currentColor keeps
+   it right in both light and dark without a second rule. */
+.picker { position: relative; display: inline-flex; flex: 0 0 auto; }
+.picker select { width: auto; padding-right: 2rem; appearance: none; -webkit-appearance: none; }
+.picker::after {
+  content: ""; position: absolute; right: 0.75rem; top: 50%; pointer-events: none;
+  width: 0.62rem; height: 0.36rem; transform: translateY(-50%); background: currentColor;
+  clip-path: polygon(0 0, 100% 0, 50% 100%); opacity: 0.75;
+}
 .files { max-height: 17rem; overflow-y: auto; margin-top: 0.4rem;
   border: 1px solid var(--line); border-radius: 0.35rem; }
 .file { display: flex; gap: 0.6rem; align-items: center; width: 100%; text-align: left;
@@ -66,6 +76,10 @@ button.link { border: 0; padding: 0.2rem 0.35rem; text-decoration: underline; fo
   font-size: 0.88rem; }
 .stop { border-left: 3px solid #c0392b; padding-left: 0.6rem; margin: 0.6rem 0;
   font-size: 0.88rem; }
+.heading-row { display: flex; align-items: baseline; justify-content: space-between;
+  gap: 0.6rem; }
+.heading-row h2 { margin-bottom: 0.6rem; }
+button.danger { border-color: #c0392b; color: #c0392b; }
 .job { border-top: 1px solid var(--line); padding: 0.7rem 0; }
 .job:first-child { border-top: 0; }
 .job-title { font-weight: 600; overflow-wrap: anywhere; }
@@ -88,13 +102,13 @@ footer { font-size: 0.8rem; color: var(--quiet); }
   <label for="file-search">File already on the printer</label>
   <div class="finder">
     <input type="search" id="file-search" placeholder="Search by name" autocomplete="off">
-    <select id="file-sort" aria-label="Sort the files">
+    <span class="picker"><select id="file-sort" aria-label="Sort the files">
       <option value="newest">Newest first</option>
       <option value="oldest">Oldest first</option>
       <option value="printed">Last printed</option>
       <option value="name">Name A to Z</option>
       <option value="name-back">Name Z to A</option>
-    </select>
+    </select></span>
   </div>
   <div id="file-list" class="files"><p class="quiet">Loading...</p></div>
   <p class="quiet" id="file-count"></p>
@@ -124,7 +138,10 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 </section>
 
 <section>
-<h2>Already settled</h2>
+<div class="heading-row">
+  <h2>Already settled</h2>
+  <div id="clear-settled"></div>
+</div>
 <div id="settled"><p class="quiet">Loading...</p></div>
 </section>
 
@@ -137,7 +154,7 @@ var CLOCK_SKEW_TOLERANCE_SECONDS = 120;
 var REFRESH_MILLISECONDS = 10000;
 
 var state = { jobs: [], printer: null, summary: null, editing: null, setup: null,
-              files: [], chosen: "" };
+              files: [], chosen: "", armedToClear: false };
 // A long list is slow to build and pointless to read. Past this, search is the way in.
 var MOST_FILES_TO_DRAW = 40;
 
@@ -413,6 +430,9 @@ function renderJob(job) {
   }
 
   var actions = element("div", "job-actions");
+  if (job.state === "started" || job.state === "cancelled") {
+    actions.appendChild(actionButton("Remove", function () { forgetJob(job); }));
+  }
   if (job.state === "scheduled") {
     actions.appendChild(actionButton("Edit", function () { startEditing(job); }));
     actions.appendChild(actionButton("Cancel", function () { cancelJob(job); }));
@@ -441,6 +461,7 @@ function renderJobs() {
     pending.length ? pending.map(renderJob) : [element("p", "quiet", "Nothing scheduled.")]);
   replaceChildren(document.getElementById("settled"),
     settled.length ? settled.map(renderJob) : [element("p", "quiet", "Nothing yet.")]);
+  renderClearButton(settled.length);
 }
 
 // ---- the form ---------------------------------------------------------------------------------
@@ -526,6 +547,51 @@ function save() {
     showProblem(document.getElementById("form-problem"), problem.message);
     refreshSaveButton();
   });
+}
+
+function forgetJob(job) {
+  // Ours to forget, not the printer's: its own record of what it printed is untouched.
+  postJson("./jobs/forget", { job_id: job.job_id })
+    .then(loadJobs)
+    .catch(function (problem) {
+      showProblem(document.getElementById("form-problem"), problem.message);
+    });
+}
+
+// Two clicks, with the button saying what the second one will do. A browser confirm() would
+// block the browser harness this page is tested with, and a dialog for a list of finished jobs
+// is heavier than the thing deserves.
+var DISARM_AFTER_MILLISECONDS = 6000;
+var disarmTimer = null;
+
+function armTheClear() {
+  state.armedToClear = true;
+  renderJobs();
+  if (disarmTimer) { clearTimeout(disarmTimer); }
+  disarmTimer = setTimeout(function () {
+    state.armedToClear = false;
+    renderJobs();
+  }, DISARM_AFTER_MILLISECONDS);
+}
+
+function clearTheSettledList() {
+  state.armedToClear = false;
+  if (disarmTimer) { clearTimeout(disarmTimer); disarmTimer = null; }
+  postJson("./jobs/forget-settled", {})
+    .then(loadJobs)
+    .catch(function (problem) {
+      showProblem(document.getElementById("form-problem"), problem.message);
+    });
+}
+
+function renderClearButton(howMany) {
+  var target = document.getElementById("clear-settled");
+  if (!howMany) { replaceChildren(target, []); state.armedToClear = false; return; }
+  var button = state.armedToClear
+    ? actionButton("Really remove " + howMany + "?", clearTheSettledList)
+    : actionButton("Clear the list", armTheClear);
+  if (state.armedToClear) { button.className = "danger"; }
+  replaceChildren(target, [button]);
 }
 
 function cancelJob(job) {

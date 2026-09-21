@@ -1,7 +1,7 @@
 {
   "name": "print-scheduler",
   "title": "Print Scheduler",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Pick a sliced file that is already on the printer, pick when it should start, and the printer starts it for you at that time.\n\nThe scheduler refuses far more often than it starts. It will not start a job on a printer that is not idle, it will not start a job whose time has already passed, and it records a reason for every job it did not start. It cannot see the bed, so the person scheduling a job is the one promising the bed will be clear.",
   "tagline": "Start a print at a time you choose.",
   "category": "printing",
@@ -25,6 +25,11 @@
         "name": "START_TOLERANCE_MINUTES",
         "description": "How many minutes late a job may still start. It is a retry budget for a printer that is briefly unreachable, not permission to start late.",
         "required": true
+      },
+      {
+        "name": "SETTLED_JOBS_KEPT",
+        "description": "How many finished and cancelled jobs to keep in the list. Older ones are dropped automatically. Nothing scheduled is ever dropped.",
+        "required": false
       }
     ]
   },
@@ -37,6 +42,16 @@
       "default": 5,
       "hint": "A job noticed within this many minutes of its time still starts. Past it, the job is cancelled and the reason is recorded. A printer that is busy is never waited for, whatever this is set to.",
       "required": true,
+      "userEditable": true
+    },
+    {
+      "key": "SETTLED_JOBS_KEPT",
+      "label": "Finished jobs to keep",
+      "type": "number",
+      "placeholder": "25",
+      "default": 25,
+      "hint": "The list of settled jobs is trimmed to this many, newest first, so it does not grow forever. Jobs that have not run yet are never dropped. Set it to 0 to keep nothing once a job has settled.",
+      "required": false,
       "userEditable": true
     }
   ],

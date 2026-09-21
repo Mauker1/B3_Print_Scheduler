@@ -80,7 +80,9 @@ from print_scheduler.service import (
     overlapping_job_ids,
     payload_for,
     projected_finish,
+    read_settled_kept,
     read_tolerance_seconds,
+    trimmed_to,
 )
 from print_scheduler.store import ScheduleStore
 from print_scheduler.tool_mapping import (
@@ -149,6 +151,7 @@ __all__ = [
     "plan_tools",
     "print_records_from_history",
     "projected_finish",
+    "read_settled_kept",
     "read_tolerance_seconds",
     "reason_filename_cannot_start",
     "render_schedule_page",
@@ -159,5 +162,6 @@ __all__ = [
     "summarise",
     "tick_once",
     "tools_used",
+    "trimmed_to",
     "verdict_for",
 ]

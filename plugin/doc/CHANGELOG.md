@@ -5,6 +5,32 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.10 (in development)
+
+- **Settled jobs can be removed, one at a time or all at once.** Clear the list means clear
+  everything *settled*, and nothing scheduled is ever touched: that single property is what
+  makes the button safe to press without reading it, and there is a test named after it.
+- The clearing takes two clicks, and the button says what the second one will do: *Really
+  remove 12?*. It disarms itself after six seconds. No browser dialog, which would block the
+  harness this page is tested with and is heavier than a list of finished jobs deserves.
+- **A new setting, Finished jobs to keep**, default 25. The list is trimmed to that many
+  whenever the schedule is written, so it does not grow forever without anyone clicking
+  anything. Jobs that have not run are never trimmed, whatever the cap says. Zero is a real
+  answer, meaning keep nothing once a job has settled. It is not a required setting, so an
+  upgrade does not interrogate anyone.
+- Removing a job removes **our** record of what the scheduler decided. The printer's own
+  history of what it printed is untouched and was always the authority on that.
+- **Fixed: a POST whose handler ignored its body broke the next request on that connection.**
+  An unread body stays in a kept-alive socket, so the following request was parsed starting
+  from the leftover bytes and came back as `501 Unsupported method ('{}GET')`. The body is now
+  read once before any route runs, so no handler can reintroduce it by not caring about its
+  own body.
+- **The sort control's arrow no longer sits against the edge of its box.** Chrome draws a
+  native dropdown arrow against the border box and ignores `padding-right`, so padding
+  moved the text and left the arrow where it was. The native one is off now and the arrow
+  is drawn in CSS, in `currentColor`, so it sits where the search field's own clear button
+  sits and is right in both light and dark.
+
 ## 0.1.9 (in development)
 
 - **The file list can be sorted.** Newest first stays the default, with oldest first, last

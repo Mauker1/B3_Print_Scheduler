@@ -179,3 +179,26 @@ def test_a_file_with_no_thumbnail_is_a_clean_miss_rather_than_a_broken_image(
             raise AssertionError("expected a 404")
     except HTTPError as missing:
         assert missing.code == 404
+
+
+def test_a_post_whose_handler_ignores_the_body_does_not_poison_the_connection(
+    served: tuple[str, ScheduleService],
+) -> None:
+    """The bug this guards: a body left unread stays in a kept-alive socket.
+
+    The next request on that connection is then parsed starting from the leftover bytes, and
+    the server answered a real POST and then rejected the following GET as an unsupported
+    method called `{}GET`. One connection, two requests, in that order, is the whole test.
+    """
+    from http.client import HTTPConnection
+    host = served[0].removeprefix("http://")
+    connection = HTTPConnection(host, timeout=5)
+    connection.request(
+        "POST", "/jobs/forget-settled", body=b"{}",
+        headers={"Content-Type": "application/json"},
+    )
+    assert connection.getresponse().read() is not None
+    connection.request("GET", "/health")
+    second = connection.getresponse()
+    assert second.status == 200
+    connection.close()
