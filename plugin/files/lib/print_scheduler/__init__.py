@@ -9,8 +9,11 @@ later without a single test changing.
 
 from print_scheduler.cli import build_argument_parser, keep_ticking, main, tick_once
 from print_scheduler.gcode_files import (
+    FileRow,
     FileSummary,
     ToolUse,
+    best_thumbnail,
+    file_rows,
     split_slicer_list,
     summarise,
     tools_used,
@@ -103,6 +106,7 @@ __all__ = [
     "Action",
     "Attempt",
     "Decision",
+    "FileRow",
     "FileSummary",
     "Job",
     "JobRequest",
@@ -126,10 +130,12 @@ __all__ = [
     "ToolUse",
     "build_argument_parser",
     "build_server",
+    "best_thumbnail",
     "build_start_script",
     "cancel_by_hand",
     "colour_distance",
     "decide",
+    "file_rows",
     "find_our_print",
     "is_due",
     "job_from_dict",

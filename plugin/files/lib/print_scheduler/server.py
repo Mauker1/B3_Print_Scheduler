@@ -31,7 +31,7 @@ from print_scheduler.service import (
 )
 
 SERVICE_NAME = "print-scheduler"
-SERVICE_VERSION = "0.1.7"
+SERVICE_VERSION = "0.1.8"
 
 JSON_CONTENT_TYPE = "application/json"
 # A schedule entry is a filename and a few flags. Anything larger is not one.
@@ -161,7 +161,27 @@ def serve_jobs(handler: SchedulerRequestHandler) -> None:
 
 
 def serve_files(handler: SchedulerRequestHandler) -> None:
-    handler.respond_json(HTTPStatus.OK, {"filenames": handler.schedule().gcode_filenames()})
+    rows = handler.schedule().files_on_the_printer()
+    handler.respond_json(HTTPStatus.OK, {"files": [row.to_dict() for row in rows]})
+
+
+def serve_thumbnail(handler: SchedulerRequestHandler) -> None:
+    """The picture a slicer left in the file, passed through rather than linked to.
+
+    Linking the browser straight at Moonraker would mean an absolute URL to a host that is only
+    Moonraker's on a printer, and the service also runs on a laptop pointed at one. Passing it
+    through keeps every URL the page emits relative and keeps the image behind the same
+    authentication as the rest of the schedule.
+    """
+    requested = handler.query().get("filename", [""])[0]
+    if not requested:
+        raise BadRequestError("name a file")
+    found = handler.schedule().thumbnail(requested)
+    if found is None:
+        handler.respond_json(HTTPStatus.NOT_FOUND, {"error": "no thumbnail for that file"})
+        return
+    picture, content_type = found
+    handler.respond(HTTPStatus.OK, picture, content_type)
 
 
 def serve_file_summary(handler: SchedulerRequestHandler) -> None:
@@ -221,6 +241,7 @@ GET_ROUTES: dict[str, Route] = {
     "/health": serve_health,
     "/jobs": serve_jobs,
     "/files": serve_files,
+    "/thumbnail": serve_thumbnail,
     "/file": serve_file_summary,
     "/printer": serve_printer,
 }

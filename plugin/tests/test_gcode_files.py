@@ -9,7 +9,13 @@ wrong.
 
 from __future__ import annotations
 
-from print_scheduler import split_slicer_list, summarise, tools_used
+from print_scheduler import (
+    best_thumbnail,
+    file_rows,
+    split_slicer_list,
+    summarise,
+    tools_used,
+)
 from printer_stand_in import (
     BENCHY,
     FOUR_TOOL_METADATA,
@@ -147,3 +153,53 @@ def test_a_second_slot_that_is_used_keeps_its_own_number() -> None:
 
 def test_a_file_describing_no_slots_at_all_has_none() -> None:
     assert tools_used({"estimated_time": 1800, "layer_count": 60}) == ()
+
+
+def test_the_newest_file_is_first_because_that_is_the_one_you_want() -> None:
+    # Alphabetical put the file you sliced a minute ago wherever its name happened to fall,
+    # which on a printer holding a hundred and fifty of them is nowhere useful.
+    rows = file_rows({"old.gcode": 100.0, "new.gcode": 900.0, "middle.gcode": 500.0}, {})
+    assert [row.filename for row in rows] == ["new.gcode", "middle.gcode", "old.gcode"]
+
+
+def test_files_with_no_date_sort_last_and_then_by_name() -> None:
+    rows = file_rows({"b.gcode": 0.0, "a.gcode": 0.0, "dated.gcode": 5.0}, {})
+    assert [row.filename for row in rows] == ["dated.gcode", "a.gcode", "b.gcode"]
+
+
+def test_a_described_file_carries_its_estimate_and_when_it_last_ran() -> None:
+    rows = file_rows(
+        {"3DBenchy.gcode": 100.0},
+        {"3DBenchy.gcode": {"estimated_time": 2639, "print_start_time": 1749394981.1}},
+    )
+    assert rows[0].estimated_seconds == 2639
+    assert rows[0].last_printed == 1749394981.1
+
+
+def test_a_file_nobody_has_printed_says_so_by_carrying_no_date() -> None:
+    rows = file_rows({"fresh.gcode": 100.0}, {"fresh.gcode": {"estimated_time": 60}})
+    assert rows[0].last_printed == 0.0
+
+
+def test_a_file_in_a_subfolder_is_listed_even_though_it_was_not_described() -> None:
+    # The listing reaches into subdirectories and the description does not. Showing the file
+    # with a name and a date beats hiding a file the printer can perfectly well start.
+    rows = file_rows({"sub/deep.gcode": 100.0, "top.gcode": 50.0}, {"top.gcode": {}})
+    assert [row.filename for row in rows] == ["sub/deep.gcode", "top.gcode"]
+    assert rows[0].estimated_seconds == 0.0
+
+
+def test_the_largest_thumbnail_is_the_one_worth_showing() -> None:
+    metadata = {"thumbnails": [
+        {"width": 48, "relative_path": ".thumbs/small.png"},
+        {"width": 300, "relative_path": ".thumbs/big.png"},
+        {"width": 96, "relative_path": ".thumbs/middle.png"},
+    ]}
+    assert best_thumbnail(metadata) == ".thumbs/big.png"
+    assert file_rows({"a.gcode": 1.0}, {"a.gcode": metadata})[0].has_thumbnail
+
+
+def test_a_file_with_no_thumbnails_says_so_rather_than_offering_a_broken_image() -> None:
+    assert best_thumbnail({}) is None
+    assert best_thumbnail({"thumbnails": []}) is None
+    assert not file_rows({"a.gcode": 1.0}, {"a.gcode": {}})[0].has_thumbnail

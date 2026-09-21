@@ -34,7 +34,8 @@ import sys
 # outside the gate and has to set it for itself.
 sys.dont_write_bytecode = True
 
-import tempfile  # noqa: E402  after the bytecode setting
+import base64  # noqa: E402  after the bytecode setting
+import tempfile  # noqa: E402
 import threading  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any  # noqa: E402
@@ -64,6 +65,7 @@ from print_scheduler import (  # noqa: E402
 )
 from printer_stand_in import (  # noqa: E402
     BENCHY,
+    CHINESE_NAME,
     FOUR_TOOL_METADATA,
     TOO_MUCH_ASA_METADATA,
     WHITE_PLA_METADATA,
@@ -71,6 +73,10 @@ from printer_stand_in import (  # noqa: E402
 )
 
 A_TIME_WELL_IN_THE_FUTURE = "2030-06-01T06:00"
+# The smallest legal PNG, so the page has a real image to lay out rather than a broken one.
+ONE_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+)
 MULTI_TOOL_FILE = "04_XYZ_Cali_PLA_14m25s.gcode"
 SLOTS_IN_THE_MULTI_TOOL_FILE = 4
 PATIENCE_MILLISECONDS = 5000
@@ -125,26 +131,43 @@ def text_of(page: Page, selector: str) -> str:
 
 
 def wait_for_the_file_list(page: Page) -> None:
-    # Attached, not visible: an option inside a closed select is never "visible".
-    page.wait_for_selector(
-        "#file-choice option[value$='.gcode']", state="attached", timeout=PATIENCE_MILLISECONDS
-    )
+    page.wait_for_selector("#file-list .file", timeout=PATIENCE_MILLISECONDS)
+
+
+def pick_the_file(page: Page, filename: str) -> None:
+    page.click(f'#file-list .file[data-filename="{filename}"]')
 
 
 def check_the_page_before_anything_touches_it(page: Page) -> None:
     print("\nOn load, before any interaction")
     wait_for_the_file_list(page)
     check("the printer line says something", text_of(page, "#printer-line") != "", True)
-    check("the file list is populated", page.locator("#file-choice option").count() > 1, True)
+    check("the file list is populated", page.locator("#file-list .file").count() > 0, True)
     check("nothing is scheduled", "Nothing scheduled" in text_of(page, "#pending"), True)
     check("the settled list is empty", "Nothing yet" in text_of(page, "#settled"), True)
     check("scheduling is refused until asked properly", page.is_disabled("#save"), True)
     check("the preference toggles are offered", page.is_visible("#level-bed"), True)
 
 
+def check_the_file_list_itself(page: Page) -> None:
+    print("\nThe file list")
+    rows = text_of(page, "#file-list")
+    check("a file says when it was sliced", "sliced" in rows, True)
+    check("and whether it has ever run", "never printed" in rows, True)
+    check("and how long it takes", "48m" in rows or "26s" in rows, True)
+    page.fill("#file-search", "nothing matches this")
+    page.wait_for_timeout(100)
+    check("searching can empty it", "No file matches" in text_of(page, "#file-list"), True)
+    page.fill("#file-search", "Benchy")
+    page.wait_for_timeout(100)
+    check("and narrow it", page.locator("#file-list .file").count(), 1)
+    page.fill("#file-search", "")
+    page.wait_for_timeout(100)
+
+
 def check_choosing_a_file(page: Page, filename: str) -> None:
     print("\nChoosing a file")
-    page.select_option("#file-choice", filename)
+    pick_the_file(page, filename)
     page.wait_for_selector(".tool", timeout=PATIENCE_MILLISECONDS)
     facts = text_of(page, "#file-facts")
     check("the slicer slot is shown, not a toolhead", "slot 0" in facts, True)
@@ -202,7 +225,7 @@ def check_a_multi_tool_file(page: Page, printer: StandInPrinter) -> None:
     printer.describes = dict(FOUR_TOOL_METADATA)
     page.reload()
     wait_for_the_file_list(page)
-    page.select_option("#file-choice", MULTI_TOOL_FILE)
+    pick_the_file(page, MULTI_TOOL_FILE)
     page.wait_for_selector("#file-facts .tools", timeout=PATIENCE_MILLISECONDS)
     facts = text_of(page, "#file-facts")
     check(
@@ -226,7 +249,7 @@ def check_a_file_whose_material_is_not_loaded(page: Page, printer: StandInPrinte
     printer.describes = dict(TOO_MUCH_ASA_METADATA)
     page.reload()
     wait_for_the_file_list(page)
-    page.select_option("#file-choice", MULTI_TOOL_FILE)
+    pick_the_file(page, MULTI_TOOL_FILE)
     page.wait_for_selector("#file-facts .stop", timeout=PATIENCE_MILLISECONDS)
     facts = text_of(page, "#file-facts")
     check("it says how many short it is", "needs 3 toolheads with ASA" in facts, True)
@@ -250,6 +273,7 @@ def watch_for_complaints(page: Page) -> None:
 def run_every_check(page: Page, printer: StandInPrinter, base_url: str) -> None:
     page.goto(base_url)
     check_the_page_before_anything_touches_it(page)
+    check_the_file_list_itself(page)
     check_choosing_a_file(page, sorted(printer.holds)[0])
     check_the_bed_promise_is_required(page)
     check_scheduling(page)
@@ -282,7 +306,10 @@ def report() -> int:
 
 def main() -> int:
     printer = StandInPrinter(
-        describes=dict(WHITE_PLA_METADATA), remembers=PRINTS_THAT_FINISHED
+        describes=dict(WHITE_PLA_METADATA),
+        remembers=PRINTS_THAT_FINISHED,
+        modified_at={BENCHY: 1789920000.0, CHINESE_NAME: 1789830000.0},
+        thumbnail_bytes=ONE_PIXEL_PNG,
     )
     with tempfile.TemporaryDirectory() as scratch:
         base_url, server = serve(Path(scratch), printer)

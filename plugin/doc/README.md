@@ -18,6 +18,12 @@ address. Pick a file the printer already has, pick when it should start, promise
 clear, and it is scheduled. A job that has not fired yet can be edited or cancelled, and any job
 can be used as the starting point for another.
 
+The file list is newest first, because the file you want is almost always the one you just
+sliced. Each row carries the slicer's own thumbnail, when the file was sliced, when it last
+printed, and how long it takes, and a file nobody has ever printed says so rather than leaving a
+blank. There is a search box, and a long list draws its first forty rows and asks you to narrow
+it.
+
 Picking a file shows what it will use: which toolheads, which material and colour in each, how
 long the slicer thinks the printing takes, and what it will heat the bed to. A scheduled job then
 shows the whole thing, setup time included, because the two are not the same and only one of them
@@ -230,4 +236,3 @@ adapter remains a thing this plugin has never met.
 - **Choosing the toolheads yourself.** The mapping is worked out from what is loaded and shown
   to you, but it cannot be overridden. When two slots want a material whose colours are not
   loaded, that choice is arbitrary and you can only cancel, not correct it.
-- **Thumbnails.** The file picker shows filament colours rather than a preview of the model.

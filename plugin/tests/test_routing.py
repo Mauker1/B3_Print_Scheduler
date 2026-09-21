@@ -16,6 +16,7 @@ import threading
 from collections.abc import Iterator
 from pathlib import Path
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import pytest
@@ -30,7 +31,9 @@ FAR_FUTURE = 4_102_444_800.0
 def fixture_served(tmp_path: Path) -> Iterator[tuple[str, ScheduleService]]:
     """Serve one schedule on an ephemeral port for the duration of one test."""
     service = ScheduleService(
-        ScheduleStore(tmp_path / "jobs.json"), StandInPrinter(), tmp_path / "user_vars.json"
+        ScheduleStore(tmp_path / "jobs.json"),
+        StandInPrinter(thumbnail_bytes=b"a picture"),
+        tmp_path / "user_vars.json",
     )
     server = build_server("127.0.0.1", 0, service)
     serving = threading.Thread(
@@ -78,7 +81,8 @@ def test_health_answers_without_needing_moonraker(served: tuple[str, ScheduleSer
 
 
 def test_the_file_list_comes_from_the_printer(served: tuple[str, ScheduleService]) -> None:
-    assert BENCHY in get(served[0], "/files")["filenames"]
+    names = [row["filename"] for row in get(served[0], "/files")["files"]]
+    assert BENCHY in names
 
 
 def test_a_file_summary_is_served_for_the_name_in_the_query(
@@ -158,3 +162,20 @@ def test_an_unknown_path_answers_with_json_rather_than_an_html_error_page(
         get(served[0], "/not-a-route")
     assert refused.value.status == 404
     assert json.loads(refused.value.read())["path"] == "/not-a-route"
+
+
+def test_a_thumbnail_comes_back_as_an_image(served: tuple[str, ScheduleService]) -> None:
+    with urlopen(f"{served[0]}/thumbnail?filename={quote(BENCHY)}", timeout=5) as response:
+        assert response.status == 200
+        assert response.headers["Content-Type"] == "image/png"
+        assert response.read() == b"a picture"
+
+
+def test_a_file_with_no_thumbnail_is_a_clean_miss_rather_than_a_broken_image(
+    served: tuple[str, ScheduleService],
+) -> None:
+    try:
+        with urlopen(f"{served[0]}/thumbnail?filename=nothing.gcode", timeout=5):
+            raise AssertionError("expected a 404")
+    except HTTPError as missing:
+        assert missing.code == 404

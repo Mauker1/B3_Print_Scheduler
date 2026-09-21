@@ -91,6 +91,69 @@ class FileSummary:
         }
 
 
+@dataclass(frozen=True)
+class FileRow:
+    """One line in the file picker.
+
+    Everything here is cheap: it comes from a single directory listing rather than a metadata
+    read per file, so a printer holding a hundred and fifty files costs one request.
+    """
+
+    filename: str
+    modified: float
+    estimated_seconds: float = 0.0
+    # When the printer last started this file, from its own metadata. Zero means never, which
+    # is worth saying out loud on a page that schedules unattended prints.
+    last_printed: float = 0.0
+    has_thumbnail: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "filename": self.filename,
+            "modified": self.modified,
+            "estimated_seconds": self.estimated_seconds,
+            "last_printed": self.last_printed,
+            "has_thumbnail": self.has_thumbnail,
+        }
+
+
+def best_thumbnail(metadata: dict[str, Any]) -> str | None:
+    """The largest thumbnail the file offers, as a path relative to the file's own directory."""
+    thumbnails = metadata.get("thumbnails")
+    if not isinstance(thumbnails, list) or not thumbnails:
+        return None
+    largest = max(
+        (one for one in thumbnails if isinstance(one, dict) and one.get("relative_path")),
+        key=lambda one: _as_float(one.get("width")),
+        default=None,
+    )
+    return None if largest is None else str(largest["relative_path"])
+
+
+def file_rows(
+    listing: dict[str, float], described: dict[str, dict[str, Any]]
+) -> tuple[FileRow, ...]:
+    """Every file the printer holds, newest first, enriched where the printer described it.
+
+    The listing is the truth about what exists, because it reaches into subdirectories. The
+    descriptions come from one directory read of the root, so a file kept in a subfolder still
+    appears, with a name and a date and nothing else. That is a better failure than hiding it.
+    """
+    rows = [
+        FileRow(
+            filename=filename,
+            modified=modified,
+            estimated_seconds=_as_float(described.get(filename, {}).get("estimated_time")),
+            last_printed=_as_float(described.get(filename, {}).get("print_start_time")),
+            has_thumbnail=best_thumbnail(described.get(filename, {})) is not None,
+        )
+        for filename, modified in listing.items()
+    ]
+    # Newest first, because the file you are looking for is almost always the one you just
+    # sliced. Alphabetical put it wherever its name happened to fall.
+    return tuple(sorted(rows, key=lambda row: (-row.modified, row.filename)))
+
+
 def split_slicer_list(value: str) -> tuple[str, ...]:
     """Split one of the slicer's per-tool lists, whichever separator it happens to use."""
     if not value:

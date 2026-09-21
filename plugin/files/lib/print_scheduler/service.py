@@ -18,7 +18,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from print_scheduler.gcode_files import FileSummary, summarise
+from print_scheduler.gcode_files import FileRow, FileSummary, file_rows, summarise
 from print_scheduler.history import SetupTime, measure_start_routine, verdict_for
 from print_scheduler.jobs import (
     Job,
@@ -218,6 +218,24 @@ class ScheduleService:
 
     def gcode_filenames(self) -> list[str]:
         return sorted(self._printer.gcode_filenames())
+
+    def files_on_the_printer(self) -> tuple[FileRow, ...]:
+        """Every file, newest first, described as far as the printer will describe it."""
+        try:
+            listing = self._printer.file_listing()
+        except OSError:
+            return ()
+        try:
+            described = self._printer.described_files()
+        except OSError:
+            described = {}
+        return file_rows(listing, described)
+
+    def thumbnail(self, filename: str) -> tuple[bytes, str] | None:
+        try:
+            return self._printer.thumbnail(filename)
+        except OSError:
+            return None
 
     def recent_prints(self) -> tuple[PrintRecord, ...]:
         try:

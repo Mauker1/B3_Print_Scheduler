@@ -38,8 +38,18 @@ h2 { font-size: 1rem; margin: 0 0 0.6rem; }
 section { border: 1px solid var(--line); border-radius: 0.6rem; padding: 1rem;
   margin-bottom: 1.1rem; }
 label { display: block; font-size: 0.85rem; margin-bottom: 0.15rem; }
-select, input[type=datetime-local] { width: 100%; padding: 0.45rem; font: inherit;
-  border: 1px solid var(--line); border-radius: 0.35rem; background: transparent; color: inherit; }
+select, input[type=datetime-local], input[type=search] { width: 100%; padding: 0.45rem;
+  font: inherit; border: 1px solid var(--line); border-radius: 0.35rem; background: transparent;
+  color: inherit; }
+.files { max-height: 17rem; overflow-y: auto; margin-top: 0.4rem;
+  border: 1px solid var(--line); border-radius: 0.35rem; }
+.file { display: flex; gap: 0.6rem; align-items: center; width: 100%; text-align: left;
+  border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 0.45rem 0.6rem; }
+.file:first-child { border-top: 0; }
+.file[aria-pressed=true] { background: rgba(128,128,128,0.18); }
+.file img, .file .noshot { width: 2.6rem; height: 2.6rem; flex: 0 0 2.6rem; border-radius: 0.3rem;
+  object-fit: contain; background: rgba(128,128,128,0.12); }
+.file-name { font-weight: 600; overflow-wrap: anywhere; font-size: 0.9rem; }
 .row { margin-bottom: 0.8rem; }
 .check { display: flex; gap: 0.5rem; align-items: flex-start; margin-bottom: 0.5rem;
   font-size: 0.9rem; }
@@ -73,8 +83,10 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 <section>
 <h2 id="form-heading">Schedule a print</h2>
 <div class="row">
-  <label for="file-choice">File already on the printer</label>
-  <select id="file-choice"><option value="">Loading...</option></select>
+  <label for="file-search">File already on the printer</label>
+  <input type="search" id="file-search" placeholder="Search by name" autocomplete="off">
+  <div id="file-list" class="files"><p class="quiet">Loading...</p></div>
+  <p class="quiet" id="file-count"></p>
 </div>
 <div id="file-facts"></div>
 <div class="row">
@@ -113,7 +125,10 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 var CLOCK_SKEW_TOLERANCE_SECONDS = 120;
 var REFRESH_MILLISECONDS = 10000;
 
-var state = { jobs: [], printer: null, summary: null, editing: null, setup: null };
+var state = { jobs: [], printer: null, summary: null, editing: null, setup: null,
+              files: [], chosen: "" };
+// A long list is slow to build and pointless to read. Past this, search is the way in.
+var MOST_FILES_TO_DRAW = 40;
 
 function element(tag, className, text) {
   var made = document.createElement(tag);
@@ -420,7 +435,7 @@ function renderJobs() {
 // ---- the form ---------------------------------------------------------------------------------
 
 function refreshSaveButton() {
-  var chosen = document.getElementById("file-choice").value;
+  var chosen = state.chosen;
   var when = document.getElementById("start-at").value;
   var acknowledged = document.getElementById("bed-clear").checked;
   // The one thing that makes a file unschedulable is that its slots cannot be given
@@ -452,7 +467,8 @@ function stopEditing() {
 }
 
 function fillForm(job, keepTime) {
-  document.getElementById("file-choice").value = job.filename;
+  state.chosen = job.filename;
+  renderFiles();
   // Changing the file or the time clears the promise about the bed, because the promise was about
   // a particular moment and a particular thing on the plate.
   document.getElementById("bed-clear").checked = false;
@@ -477,7 +493,7 @@ function chosenInstant() {
 function save() {
   var chosen = chosenInstant();
   var body = {
-    filename: document.getElementById("file-choice").value,
+    filename: state.chosen,
     start_at: chosen.epoch,
     typed_time: chosen.typed,
     timezone_name: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -533,18 +549,84 @@ function loadPrinter() {
 
 function loadFiles() {
   return api("./files").then(function (payload) {
-    var choice = document.getElementById("file-choice");
-    var options = [element("option", null, "Choose a file")];
-    options[0].value = "";
-    (payload.filenames || []).forEach(function (filename) {
-      var option = element("option", null, filename);
-      option.value = filename;
-      options.push(option);
-    });
-    replaceChildren(choice, options);
+    state.files = payload.files || [];
+    renderFiles();
   }).catch(function (problem) {
     showProblem(document.getElementById("form-problem"), problem.message);
   });
+}
+
+function whenDay(epochSeconds) {
+  if (!epochSeconds) { return null; }
+  var moment = new Date(epochSeconds * 1000);
+  var today = new Date();
+  var sameDay = moment.toDateString() === today.toDateString();
+  return sameDay ? moment.toLocaleTimeString() : moment.toLocaleDateString();
+}
+
+function describeFile(file) {
+  var parts = [];
+  var sliced = whenDay(file.modified);
+  if (sliced) { parts.push("sliced " + sliced); }
+  var printed = whenDay(file.last_printed);
+  // Said out loud rather than left blank: on a page that starts prints unattended, a file
+  // nobody has ever run is worth knowing about before six in the morning.
+  parts.push(printed ? "printed " + printed : "never printed");
+  var duration = howLong(file.estimated_seconds);
+  if (duration) { parts.push(duration); }
+  return parts.join(" \u00b7 ");
+}
+
+function renderFileRow(file) {
+  var row = element("button", "file");
+  row.type = "button";
+  row.setAttribute("aria-pressed", file.filename === state.chosen ? "true" : "false");
+  row.dataset.filename = file.filename;
+  if (file.has_thumbnail) {
+    var picture = document.createElement("img");
+    picture.loading = "lazy";
+    picture.alt = "";
+    picture.src = "./thumbnail?filename=" + encodeURIComponent(file.filename);
+    row.appendChild(picture);
+  } else {
+    row.appendChild(element("span", "noshot"));
+  }
+  var lines = element("span");
+  lines.appendChild(element("span", "file-name", file.filename));
+  lines.appendChild(element("div", "quiet", describeFile(file)));
+  row.appendChild(lines);
+  row.addEventListener("click", function () { chooseFile(file.filename); });
+  return row;
+}
+
+function matchingFiles() {
+  var needle = document.getElementById("file-search").value.trim().toLowerCase();
+  if (!needle) { return state.files; }
+  return state.files.filter(function (file) {
+    return file.filename.toLowerCase().indexOf(needle) >= 0;
+  });
+}
+
+function renderFiles() {
+  var matching = matchingFiles();
+  var drawn = matching.slice(0, MOST_FILES_TO_DRAW);
+  replaceChildren(document.getElementById("file-list"),
+    drawn.length ? drawn.map(renderFileRow)
+                 : [element("p", "quiet", "No file matches that.")]);
+  var count = document.getElementById("file-count");
+  if (matching.length > drawn.length) {
+    count.textContent = "Showing " + drawn.length + " of " + matching.length +
+      ". Search to narrow it down.";
+  } else {
+    count.textContent = "";
+  }
+}
+
+function chooseFile(filename) {
+  state.chosen = filename;
+  renderFiles();
+  loadSummary(filename);
+  refreshSaveButton();
 }
 
 function loadSummary(filename) {
@@ -559,9 +641,7 @@ function loadSummary(filename) {
   });
 }
 
-document.getElementById("file-choice").addEventListener("change", function (event) {
-  loadSummary(event.target.value);
-});
+document.getElementById("file-search").addEventListener("input", renderFiles);
 document.getElementById("start-at").addEventListener("input", refreshSaveButton);
 document.getElementById("bed-clear").addEventListener("change", refreshSaveButton);
 document.getElementById("save").addEventListener("click", save);

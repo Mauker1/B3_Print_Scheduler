@@ -105,6 +105,18 @@ class Printer(Protocol):
         """Every gcode file the printer can currently start."""
         ...
 
+    def file_listing(self) -> dict[str, float]:
+        """Every gcode file and when it was last modified, reaching into subdirectories."""
+        ...
+
+    def described_files(self) -> dict[str, dict[str, Any]]:
+        """What the printer knows about the files in the gcode root, in one read."""
+        ...
+
+    def thumbnail(self, filename: str) -> tuple[bytes, str] | None:
+        """The largest thumbnail for one file, with its content type, or None."""
+        ...
+
     def recent_prints(self) -> tuple[PrintRecord, ...]:
         """The printer's own recent job history, newest first."""
         ...

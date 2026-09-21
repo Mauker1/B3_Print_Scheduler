@@ -136,6 +136,11 @@ class StandInPrinter:
     holds: frozenset[str] = frozenset({BENCHY, CHINESE_NAME})
     describes: dict[str, Any] = field(default_factory=lambda: dict(SINGLE_TOOL_METADATA))
     remembers: tuple[PrintRecord, ...] = ()
+    # When each file was last modified, for the picker's ordering. Anything absent is zero,
+    # which sorts last and then by name.
+    modified_at: dict[str, float] = field(default_factory=dict)
+    # A stand in for image bytes. None means this printer offers no thumbnails.
+    thumbnail_bytes: bytes | None = None
     refuses_start_with: str | None = None
     listing_raises: OSError | None = None
     history_raises: OSError | None = None
@@ -154,6 +159,21 @@ class StandInPrinter:
         if self.listing_raises is not None:
             raise self.listing_raises
         return self.holds
+
+    def file_listing(self) -> dict[str, float]:
+        if self.listing_raises is not None:
+            raise self.listing_raises
+        return {name: self.modified_at.get(name, 0.0) for name in self.holds}
+
+    def described_files(self) -> dict[str, dict[str, Any]]:
+        if self.listing_raises is not None:
+            return {}
+        return {name: dict(self.describes) for name in self.holds}
+
+    def thumbnail(self, filename: str) -> tuple[bytes, str] | None:
+        if self.thumbnail_bytes is None or filename not in self.holds:
+            return None
+        return self.thumbnail_bytes, "image/png"
 
     def recent_prints(self) -> tuple[PrintRecord, ...]:
         if self.history_raises is not None:

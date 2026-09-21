@@ -5,6 +5,28 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.8 (in development)
+
+- **The file picker is a list rather than a dropdown.** An alphabetical `<select>` put the file
+  you sliced a minute ago wherever its name happened to fall, which on a printer holding a
+  hundred and fifty of them is nowhere useful. Files are now listed newest first, with the
+  slicer's thumbnail, when the file was sliced, when it last printed, and how long it takes.
+- **A file nobody has ever printed says so**, rather than leaving a blank that reads as missing
+  data. On a page that starts prints unattended, a file that has never run is worth knowing
+  about.
+- **A search box**, and at most forty rows drawn at once, so a long list stays quick on a
+  printer's own hardware and search is the way into it.
+- All of that costs **one extra request**: a single directory read returns the metadata for
+  every file at once. Files kept in subfolders are listed with a name and a date rather than
+  hidden, since the listing reaches into them and the description does not.
+- **Thumbnails are passed through this plugin** rather than linked straight at Moonraker.
+  Linking would mean an absolute URL to a host that is only Moonraker's on a printer, and the
+  service also runs on a laptop pointed at one; passing them through keeps every URL the page
+  emits relative, and keeps the picture behind the same authentication as the schedule.
+- The authentication subrequest now forwards the cookie as well as the header, because an
+  `<img>` cannot set a header. A browser logged into Moonraker authenticates the same way for
+  an image as for a fetch, and on a trusted client nothing changes.
+
 ## 0.1.7 (in development)
 
 - **A file's material, colour and temperature are read on printers that are not the one this

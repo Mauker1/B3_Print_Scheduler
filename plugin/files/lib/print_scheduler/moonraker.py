@@ -24,6 +24,7 @@ from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from print_scheduler.gcode_files import best_thumbnail
 from print_scheduler.printer import (
     LoadedFilament,
     PrinterSnapshot,
@@ -156,6 +157,57 @@ class MoonrakerPrinter:
         return frozenset(str(entry["path"]) for entry in self._get_result(
             "/server/files/list?root=gcodes"
         ))
+
+    def file_listing(self) -> dict[str, float]:
+        """Every gcode file and when it was last modified, subdirectories included."""
+        return {
+            str(entry["path"]): float(entry.get("modified") or 0.0)
+            for entry in self._get_result("/server/files/list?root=gcodes")
+        }
+
+    def described_files(self) -> dict[str, dict[str, Any]]:
+        """Everything the printer knows about the files in the gcode root, in one read.
+
+        One request for the whole directory rather than one per file, which on a printer
+        holding a hundred and fifty of them is the difference between a page and a stampede.
+        Files kept in subdirectories are not described, only listed; a name and a date is a
+        better answer than hiding them.
+        """
+        try:
+            result = self._get_result(
+                "/server/files/directory?path=gcodes&extended=true"
+            )
+        except (OSError, ValueError, KeyError, TypeError):
+            return {}
+        files = result.get("files") if isinstance(result, dict) else None
+        if not isinstance(files, list):
+            return {}
+        return {
+            str(entry["filename"]): dict(entry)
+            for entry in files
+            if isinstance(entry, dict) and entry.get("filename")
+        }
+
+    def thumbnail(self, filename: str) -> tuple[bytes, str] | None:
+        """The largest thumbnail this file offers, fetched from the printer.
+
+        The path comes from the file's own metadata rather than from the caller, so nothing a
+        browser sends decides which file is read.
+        """
+        relative = best_thumbnail(self.file_metadata(filename))
+        if relative is None:
+            return None
+        directory = filename.rsplit("/", 1)[0] if "/" in filename else ""
+        within_gcodes = f"{directory}/{relative}" if directory else relative
+        if ".." in within_gcodes.split("/"):
+            return None
+        request = Request(  # noqa: S310  loopback http, the base URL is ours
+            f"{self.base_url}/server/files/gcodes/{quote(within_gcodes)}",
+            method="GET",
+        )
+        with urlopen(request, timeout=READ_TIMEOUT_SECONDS) as response:  # noqa: S310
+            content_type = response.headers.get("Content-Type") or "image/png"
+            return response.read(), str(content_type)
 
     def recent_prints(self) -> tuple[PrintRecord, ...]:
         """The printer's own recent job history, newest first."""
