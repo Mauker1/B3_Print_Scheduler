@@ -520,9 +520,24 @@ function fillForm(job, keepTime) {
   // a particular moment and a particular thing on the plate.
   document.getElementById("bed-clear").checked = false;
   document.getElementById("start-at").value = keepTime ? localInputValue(job.start_at) : "";
+  // The bed promise is the only thing that does not carry over. Everything else has to, because
+  // a form left at its last state is a job quietly changing its mind: edit the time on a
+  // levelled job while these sit unchecked and it stops levelling with nothing on screen to
+  // say so. "Schedule another like this" has the same duty, and a stronger claim to it.
+  setPreference("level-bed", job.level_bed);
+  setPreference("record-timelapse", job.record_timelapse);
   loadSummary(job.filename);
   refreshSaveButton();
   document.getElementById("form-heading").scrollIntoView({ block: "start" });
+}
+
+function setPreference(id, value) {
+  var box = document.getElementById(id);
+  // Absent on a printer that does not offer the choice, where there is nothing to carry.
+  if (!box) { return; }
+  // A job scheduled before the printer offered the choice carries null. A fresh form starts
+  // both on, so that is what a job which never made a choice is shown.
+  box.checked = value === null || value === undefined ? true : Boolean(value);
 }
 
 function localInputValue(epochSeconds) {

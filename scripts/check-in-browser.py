@@ -255,6 +255,49 @@ def check_clearing_the_settled_list(page: Page) -> None:
     check("and the button goes with it", text_of(page, "#clear-settled"), "")
 
 
+def check_editing_carries_the_jobs_own_choices(page: Page) -> None:
+    """The form must show what the job asked for, not what the form was last left at.
+
+    Found on hardware: editing a levelled job while these boxes happened to sit unchecked
+    silently stopped it levelling, with nothing on screen to say so. It costs a print and it
+    gives no warning, so it is checked in both directions.
+    """
+    print("\nEditing a job")
+    page.uncheck("#level-bed")
+    page.uncheck("#record-timelapse")
+    page.click("#pending .job button:has-text('Edit')")
+    page.wait_for_timeout(150)
+    check("editing restores the job's levelling", page.is_checked("#level-bed"), True)
+    check("and its timelapse", page.is_checked("#record-timelapse"), True)
+    check("the job's own time comes back", page.input_value("#start-at"), A_TIME_WELL_IN_THE_FUTURE)
+    check("but the promise about the bed does not", page.is_checked("#bed-clear"), False)
+
+    # Now change one of them and save, so the next edit has something different to carry.
+    page.uncheck("#level-bed")
+    page.check("#bed-clear")
+    page.click("#save")
+    page.wait_for_selector("#pending .job:has-text('no levelling')", timeout=PATIENCE_MILLISECONDS)
+    check("the change is saved", "no levelling, timelapse" in text_of(page, "#pending"), True)
+
+    page.check("#level-bed")
+    page.click("#pending .job button:has-text('Edit')")
+    page.wait_for_timeout(150)
+    check("editing again carries the changed choice", page.is_checked("#level-bed"), False)
+    check("and leaves the other one alone", page.is_checked("#record-timelapse"), True)
+    page.click("#stop-editing")
+
+
+def check_copying_carries_the_choices_too(page: Page) -> None:
+    """Schedule another like this has the same duty, and a stronger claim to it."""
+    print("\nCopying a settled job")
+    page.check("#level-bed")
+    page.click("#settled .job button:has-text('Schedule another like this')")
+    page.wait_for_timeout(150)
+    check("the copy is like the original", page.is_checked("#level-bed"), False)
+    check("in both choices", page.is_checked("#record-timelapse"), True)
+    check("but it is a new job, not an edit", page.input_value("#start-at"), "")
+
+
 def check_a_multi_tool_file(page: Page, printer: StandInPrinter) -> None:
     print("\nA multi tool file")
     printer.holds = frozenset({*printer.holds, MULTI_TOOL_FILE})
@@ -313,7 +356,9 @@ def run_every_check(page: Page, printer: StandInPrinter, base_url: str) -> None:
     check_choosing_a_file(page, sorted(printer.holds)[0])
     check_the_bed_promise_is_required(page)
     check_scheduling(page)
+    check_editing_carries_the_jobs_own_choices(page)
     check_cancelling(page)
+    check_copying_carries_the_choices_too(page)
     check_clearing_the_settled_list(page)
     check_a_multi_tool_file(page, printer)
     check_a_file_whose_material_is_not_loaded(page, printer)

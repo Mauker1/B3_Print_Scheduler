@@ -42,6 +42,15 @@ TOLERANCE_VARIABLE = "START_TOLERANCE_MINUTES"
 
 SETTLED_KEPT_VARIABLE = "SETTLED_JOBS_KEPT"
 DEFAULT_SETTLED_KEPT = 25
+
+# How many settled jobs are kept on disk whatever the display cap says. A settled job is the
+# only record of which levelling choice a print was started with, and the printer's history
+# cannot supply it: history says what ran, never what it was asked for. So the number of rows
+# someone wants to look at must not decide how much the projection knows. Thirty is
+# comfortably above the ten finished prints the measurement window reaches back over, with
+# room for a run that is all one levelling choice.
+LABELS_WORTH_KEEPING = 30
+
 SETTLED_STATES = (JobState.STARTED, JobState.CANCELLED)
 
 
@@ -175,7 +184,12 @@ class ScheduleService:
         return read_tolerance_seconds(self._user_vars_path)
 
     def settled_kept(self) -> int:
+        """How many settled jobs to show. A display preference, and only that."""
         return read_settled_kept(self._user_vars_path)
+
+    def settled_stored(self) -> int:
+        """How many settled jobs to keep on disk, which is never fewer than the projection needs."""
+        return max(self.settled_kept(), LABELS_WORTH_KEEPING)
 
     def forget(self, job_id: str) -> None:
         """Remove one settled job from our list. The printer's own history is untouched."""
@@ -318,9 +332,13 @@ class ScheduleService:
         """
         records = self.recent_prints()
         jobs = self.jobs()
+        # Measured against every settled job we still hold, then rendered down to the ones
+        # someone asked to see. The two numbers are deliberately different: turning the list
+        # down to two rows should tidy the page, not blind the projection.
         setups = measure_setup_times(records, _levelling_by_printer_job(jobs))
+        shown = trimmed_to(jobs, self.settled_kept())
         return {
-            "jobs": payload_for(jobs, self._verdicts_in(records), setups),
+            "jobs": payload_for(shown, self._verdicts_in(records), setups),
             "setup": setups.to_dict(),
         }
 
@@ -330,8 +348,10 @@ class ScheduleService:
 
     def _remember(self, jobs: Sequence[Job]) -> None:
         # Every change goes through here, so this is the one place the cap has to be applied
-        # for the list never to grow. It only ever drops settled jobs.
-        self._jobs = trimmed_to(jobs, self.settled_kept())
+        # for the list never to grow. It only ever drops settled jobs. The cap applied here is
+        # the storage one, not the display one: forgetting a job on disk also forgets which
+        # levelling choice its print was started with, and that cannot be recovered.
+        self._jobs = trimmed_to(jobs, self.settled_stored())
         self._store.save(self._jobs)
 
     def _find(self, job_id: str) -> Job:

@@ -76,6 +76,7 @@ from print_scheduler.server import (
     build_server,
 )
 from print_scheduler.service import (
+    LABELS_WORTH_KEEPING,
     JobRequest,
     ScheduleRejectedError,
     ScheduleService,
@@ -149,6 +150,7 @@ __all__ = [
     "main",
     "new_job_id",
     "normalise_colour",
+    "LABELS_WORTH_KEEPING",
     "overlapping_job_ids",
     "payload_for",
     "plan_tools",

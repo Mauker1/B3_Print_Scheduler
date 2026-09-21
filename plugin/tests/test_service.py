@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 from print_scheduler import (
+    LABELS_WORTH_KEEPING,
     Job,
     JobRequest,
     JobState,
@@ -381,15 +382,41 @@ def test_a_list_under_the_cap_is_left_exactly_as_it_was() -> None:
     assert trimmed_to(jobs, 25) == jobs
 
 
-def test_the_cap_applies_itself_whenever_the_schedule_is_written(tmp_path: Path) -> None:
+def test_the_cap_trims_the_page_rather_than_the_disk(tmp_path: Path) -> None:
+    """Setting the list to one row hides the older job. It does not destroy it.
+
+    The two are different because a settled job is the only record of which levelling choice
+    its print was started with, and dropping that to tidy a list would be a preference about
+    rows quietly deciding how well the scheduler can project.
+    """
     (tmp_path / "user_vars.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": 1}))
     service = a_service(tmp_path)
     first = service.add(a_request(), LAST_NIGHT)
     second = service.add(a_request(start_at=SIX_IN_THE_MORNING + 3600), LAST_NIGHT)
     service.cancel(first.job_id, LAST_NIGHT)
     service.cancel(second.job_id, LAST_NIGHT + 1)
-    remaining = [job.job_id for job in service.jobs()]
-    assert remaining == [second.job_id]
+
+    shown = [one["job_id"] for one in service.schedule_payload()["jobs"]]
+    assert shown == [second.job_id]
+    assert {job.job_id for job in service.jobs()} == {first.job_id, second.job_id}
+
+
+def test_the_storage_cap_still_stops_the_file_growing_forever(tmp_path: Path) -> None:
+    service = a_service(tmp_path)
+    for minute in range(LABELS_WORTH_KEEPING + 5):
+        job = service.add(a_request(start_at=SIX_IN_THE_MORNING + minute * 60), LAST_NIGHT)
+        service.cancel(job.job_id, LAST_NIGHT + minute)
+    assert len(service.jobs()) == LABELS_WORTH_KEEPING
+
+
+def test_a_low_cap_never_reaches_a_job_that_has_not_run(tmp_path: Path) -> None:
+    (tmp_path / "user_vars.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": 0}))
+    service = a_service(tmp_path)
+    settled = service.add(a_request(), LAST_NIGHT)
+    service.cancel(settled.job_id, LAST_NIGHT)
+    pending = service.add(a_request(start_at=SIX_IN_THE_MORNING + 7200), LAST_NIGHT)
+    shown = [one["job_id"] for one in service.schedule_payload()["jobs"]]
+    assert shown == [pending.job_id]
 
 
 def test_an_unset_cap_is_the_default_rather_than_nothing_kept(tmp_path: Path) -> None:
@@ -476,17 +503,36 @@ def test_two_jobs_with_different_levelling_carry_different_projections(
     )
 
 
-def test_keeping_no_settled_jobs_takes_the_labels_with_it(tmp_path: Path) -> None:
-    # Worth knowing rather than discovering: the labels live on our settled jobs, so keeping
-    # none of them means every job is projected from one figure again.
+def test_showing_no_settled_jobs_does_not_take_the_labels_with_it(tmp_path: Path) -> None:
+    """The reason the two caps are separate, stated as a test.
+
+    Found on hardware: the cap was set to 2 for an unrelated test and the levelling aware
+    projection silently stopped being able to engage at all, because it wants three prints of
+    a kind and could only ever see two. A number that means how many rows to show must not be
+    able to do that.
+    """
+    ours = [a_print_we_started(n, True) for n in range(3)]
+    theirs = tuple(a_printer_that_ran(n, True) for n in range(3))
+    (tmp_path / "user_vars.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": 0}))
+    ScheduleStore(tmp_path / "jobs.json").save(ours)
+
+    service = a_service(tmp_path, StandInPrinter(remembers=theirs))
+    waiting = service.add(a_request(level_bed=True), LAST_NIGHT)
+    payload = service.schedule_payload()
+
+    # Not one settled row on the page, and the projection is still partitioned.
+    assert [one["job_id"] for one in payload["jobs"]] == [waiting.job_id]
+    assert payload["setup"]["levelled"] is not None
+    assert round(payload["setup"]["levelled"]["typical"], 1) == 598.6
+
+
+def test_clearing_the_settled_list_does_take_the_labels_with_it(tmp_path: Path) -> None:
+    # The one way the labels do go, and it is the right one: someone asked for them to go.
     ours = [a_print_we_started(n, True) for n in range(3)]
     theirs = tuple(a_printer_that_ran(n, True) for n in range(3))
     ScheduleStore(tmp_path / "jobs.json").save(ours)
     service = a_service(tmp_path, StandInPrinter(remembers=theirs))
     assert service.schedule_payload()["setup"]["levelled"] is not None
 
-    (tmp_path / "user_vars.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": 0}))
-    ScheduleStore(tmp_path / "jobs.json").save(ours)
-    forgetful = a_service(tmp_path, StandInPrinter(remembers=theirs))
-    forgetful.add(a_request(), LAST_NIGHT)
-    assert forgetful.schedule_payload()["setup"]["levelled"] is None
+    assert service.forget_every_settled_job() == 3
+    assert service.schedule_payload()["setup"]["levelled"] is None
