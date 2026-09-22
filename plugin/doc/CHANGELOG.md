@@ -5,6 +5,16 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.16
+
+- **The busy refusal says what happened and stops.** It used to add that a busy printer is
+  never waited for and why, which is a policy rather than anything about your job, and it is
+  already in this document. A reason is read by somebody wanting to know why their print did
+  not run, not to be argued with.
+- **The missed refusal loses its last sentence** for the same reason. It still says how late the
+  job was and what the tolerance is, because those are about your job and they are the two
+  numbers worth knowing.
+
 ## 0.1.15
 
 - **The scheduler now asks before acting on promises made before a long silence.** It can stop

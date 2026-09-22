@@ -113,8 +113,7 @@ def _too_late(moment: Moment) -> Decision | None:
         Action.CANCEL,
         Refusal.MISSED,
         f"its time passed {_in_minutes(lateness)} minutes ago, beyond the "
-        f"{_in_minutes(moment.tolerance_seconds)} minute tolerance. A job that came due while the "
-        "printer was off meets this on the way back up, which is deliberate.",
+        f"{_in_minutes(moment.tolerance_seconds)} minute tolerance",
     )
 
 
@@ -157,16 +156,20 @@ def _klipper_is_not_ready(moment: Moment) -> Decision | None:
     )
 
 
+# Each running state, said the way a person would say it. Without this, one phrasing has to
+# cover both and "the printer was busy paused foo.gcode" is what that looks like.
+BUSY_WITH = {"printing": "printing", "paused": "paused on"}
+
+
 def _a_print_is_running(moment: Moment) -> Decision | None:
     if moment.printer.print_state not in RUNNING_PRINT_STATES:
         return None
     running = moment.printer.printing_filename or "another job"
-    return Decision(
-        Action.CANCEL,
-        Refusal.PRINTER_BUSY,
-        f"the printer was {moment.printer.print_state} {running}. A busy printer is never waited "
-        "for: starting this hours late, unattended, would be worse than not starting it.",
-    )
+    # Says what happened and stops. Why a busy printer is never waited for belongs in the
+    # docstring above and in the README, not in the line somebody reads at six in the morning
+    # wanting to know why their print did not run.
+    was = BUSY_WITH.get(moment.printer.print_state, "busy with")
+    return Decision(Action.CANCEL, Refusal.PRINTER_BUSY, f"the printer was {was} {running}")
 
 
 def _the_bed_was_not_cleared(moment: Moment) -> Decision | None:

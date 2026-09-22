@@ -121,9 +121,30 @@ def test_a_printer_part_way_through_a_print_cancels_rather_than_waits() -> None:
     assert printer.started == []
 
 
-def test_a_paused_print_counts_as_busy() -> None:
-    printer = StandInPrinter(reports=replace(IDLE, print_state="paused"))
-    assert settle(a_job(), printer).refusal is Refusal.PRINTER_BUSY
+def test_a_paused_print_counts_as_busy_and_says_so_in_english() -> None:
+    printer = StandInPrinter(
+        reports=replace(IDLE, print_state="paused", printing_filename="half_done.gcode")
+    )
+    settled = settle(a_job(), printer)
+    assert settled.refusal is Refusal.PRINTER_BUSY
+    # One phrasing covering both states gives "the printer was busy paused half_done.gcode".
+    assert "paused on half_done.gcode" in settled.detail
+
+
+def test_the_busy_reason_says_what_happened_and_stops() -> None:
+    """A reason is read by somebody at six in the morning asking why their print did not run.
+
+    It owes them what happened. Why a busy printer is never waited for is a policy, it does not
+    change with the job, and it is already in the README. The length is the test because that is
+    the failure: the first version of this said what happened and then argued with the reader
+    for two more lines.
+    """
+    printer = StandInPrinter(
+        reports=replace(IDLE, print_state="printing", printing_filename="something_else.gcode")
+    )
+    detail = settle(a_job(), printer).detail
+    assert len(detail) < 60, detail
+    assert detail.count(".") == 1  # the one in the filename, and no sentence after it
 
 
 def test_an_undismissed_finished_print_means_the_bed_is_presumed_occupied() -> None:
