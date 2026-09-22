@@ -5,6 +5,13 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.19
+
+- **A held job's row says less.** The banner above the scheduled list already explains that
+  nothing starts until you confirm, so the row now reads "Waiting for your confirmation."
+  rather than repeating the point. The marker still earns its place in a list long enough that
+  the banner has scrolled out of sight.
+
 ## 0.1.18
 
 - **A setting the plugin cannot use now says so, on the page.** A negative number, or a word

@@ -479,8 +479,10 @@ function renderJob(job) {
     body.appendChild(element("div", "facts", describeFinish(job, job.setup)));
   }
   if (job.held) {
-    body.appendChild(element("p", "warn",
-      "Waiting for you to confirm it still stands. It will not start until you do."));
+    // Short on purpose. The banner above the list has already said that nothing starts until
+    // you confirm; this marker exists for a list long enough that the banner has scrolled away,
+    // and saying it twice in three lines is how a warning stops being read.
+    body.appendChild(element("p", "warn", "Waiting for your confirmation."));
   }
   if (job.overlaps_with) {
     body.appendChild(element("p", "warn",

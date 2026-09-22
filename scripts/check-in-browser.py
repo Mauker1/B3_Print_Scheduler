@@ -484,7 +484,7 @@ def check_the_held_notice(page: Page) -> None:
     check("and that nothing starts until it is confirmed",
           "Nothing waiting will start until you confirm" in notice, True)
     check("the job itself says it is waiting on you",
-          "Waiting for you to confirm" in text_of(page, "#pending"), True)
+          "Waiting for your confirmation" in text_of(page, "#pending"), True)
     check("and it was not cancelled while nobody was looking",
           "Did not run" in text_of(page, "#pending"), False)
 
@@ -493,7 +493,7 @@ def check_the_held_notice(page: Page) -> None:
     page.wait_for_selector("#held-notice .warn", state="detached", timeout=PATIENCE_MILLISECONDS)
     check("one click releases it", text_of(page, "#held-notice"), "")
     check("the job stays in the list, unheld",
-          "Waiting for you to confirm" in text_of(page, "#pending"), False)
+          "Waiting for your confirmation" in text_of(page, "#pending"), False)
     check("and is still scheduled", "Starts" in text_of(page, "#pending"), True)
 
 
