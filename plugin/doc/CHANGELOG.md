@@ -7,6 +7,10 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 ## 0.1.19
 
+- **Documented how to add the plugin to Mainsail's sidebar**, as a snippet you paste into your own
+  `.theme/navi.json` rather than something the plugin writes for you. That file is yours: a plugin
+  editing it would overwrite your entries, fight any other plugin wanting one, and leave its line
+  behind after being uninstalled. Fluidd has no equivalent yet.
 - **A held job's row says less.** The banner above the scheduled list already explains that
   nothing starts until you confirm, so the row now reads "Waiting for your confirmation."
   rather than repeating the point. The marker still earns its place in a list long enough that

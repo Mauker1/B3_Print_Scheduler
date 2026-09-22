@@ -289,6 +289,48 @@ If you want a scheduled print gone, cancel it in the plugin before uninstalling.
 reinstall much later, the section above applies: everything waiting is held until you confirm
 it.
 
+## Reaching the page from Mainsail's sidebar
+
+The plugin's own tile in the Bespok3d app links to the page, and `/print-scheduler/` works in any
+browser on the printer's address. If you use **Mainsail**, you can also give it an entry in
+Mainsail's own sidebar, next to Status and History.
+
+**Mainsail only.** Fluidd has no equivalent: adding a side tab is its issue #472, open, with no
+implementation yet. A Fluidd user reaches the page by its address or from the Bespok3d app.
+
+**This plugin will not create that entry for you, deliberately.** Mainsail keeps its custom
+navigation in one file, `navi.json`, in a `.theme` folder inside your printer's config directory.
+That file is yours. A plugin writing to it would overwrite entries you added, fight any other
+plugin that wanted one, and leave its own line behind after being uninstalled. So it is a snippet
+to paste rather than something that happens to you.
+
+Create or edit `.theme/navi.json` in your config directory:
+
+```json
+[
+  {
+    "title": "Print Scheduler",
+    "href": "/print-scheduler/",
+    "target": "_self",
+    "position": 45,
+    "icon": "M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22C6.47,22 2,17.5 2,12A10,10 0 0,1 12,2M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z"
+  }
+]
+```
+
+**If you already have a `navi.json`, add this object to the array you have.** Replacing the file
+loses whatever was in it.
+
+`position` decides where the entry sits. Mainsail's own items occupy 10 to 90, so 45 puts this
+one in the middle of them; move it up or down to taste. The `icon` is SVG path data, and this one
+is a clock.
+
+**One thing to expect.** With `"target": "_self"` the link leaves Mainsail, so Mainsail's sidebar
+goes with it and the browser's back button brings it back. That is not a fault in the entry: the
+scheduler is a separate page rather than a view inside Mainsail, which is the same reason it needs
+no Mainsail version to work. If you would rather keep Mainsail where it is, use
+`"target": "_blank"` and the page opens in a new tab instead.
+
 ## What has been tested, and where
 
 Everything here is exercised against a Snapmaker U1, which is the machine it was written on, and

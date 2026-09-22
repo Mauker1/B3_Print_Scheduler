@@ -56,6 +56,10 @@ templates and places the files, wires the symlinks, and restarts the named servi
   keep in step. Do not hand-edit `index.json`, the `.atom.json`, `index.json.sig`, or anything
   under `dist/`: those are generated and signed by the `b3-builder` CI Action.
 
+- **Documentation alone does not earn a version bump.** A change to `doc/`, the attributions or
+  the README rides whatever version is current and is noted under that version's existing
+  heading. Bumping for prose churns a release for nothing.
+
 - **Every version bump writes its own `plugin/doc/CHANGELOG.md` entry, in the same change.** Not
   afterwards and not in a batch later: the reasons are legible while the work is fresh and
   guesswork once it is not. The entry says what changed for somebody using the plugin and why it
