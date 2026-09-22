@@ -54,7 +54,9 @@ em_dash_check \
     "$REPO_ROOT/AGENTS.md" \
     "$REPO_ROOT/SECURITY.md" \
     "$REPO_ROOT/CHANGELOG-alpha.md" \
-    --suffix .conf
+    "$REPO_ROOT/.github" \
+    --suffix .conf \
+    --suffix .yml
 
 shellcheck_repo "$REPO_ROOT/scripts" "$PLUGIN_DIR"
 

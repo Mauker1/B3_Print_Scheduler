@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: Copyright (C) 2026 Mauker and the Bespok3d contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+name: build-and-release
+
+# Build, test, pack, sign, release and index this repo's one plugin through the shared Bespok3d
+# build Action. Nothing about the pipeline lives here: what this file carries is who is publishing
+# (the identity inputs) and when (the trigger).
+on:
+  push:
+    tags:
+      # A release is published by a version tag and by nothing else. A branch trigger would hand
+      # every enrolled printer a package built from whatever the branch happened to hold, work in
+      # progress included. scripts/tag_version_guard.sh refuses a tag naming a plugin this repo
+      # does not hold, or a number the manifest does not declare, so the tag cannot lie about what
+      # it publishes, and the shared release-trigger detector fails the gate if a branch trigger is
+      # ever added back.
+      - 'plugin-*-v*'
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the release and upload the package, the docs and the list
+    steps:
+      - uses: actions/checkout@v4
+        # No `submodules:`, deliberately. lib_bespok3d is private and this repo's own token cannot
+        # read it, so the release has to stand up without the shared tooling. plugin/tests/run.sh
+        # builds its own runner for that reason.
+
+      # The Run workflow button stays usable: this step, not a job level `if`, is what decides. A
+      # manual run against a release tag republishes it; a manual run against a branch is refused
+      # here, loudly, instead of skipping the job and reporting success.
+      - name: Refuse a ref that is not a plugin release tag
+        run: sh scripts/tag_version_guard.sh "${{ github.ref_name }}"
+
+      # The printer runs 3.11, so the suite that gates this release runs on 3.11. Without this the
+      # runner's own python3 is 3.12 and plugin/tests/run.sh refuses to test on it.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: Bespok3d/b3-builder@c0180cb4f5cb1080bae1e425696a43539eaac906  # main @ 2026-08-30
+        with:
+          unit: repo
+          # A personal publisher, not the org: the fingerprint of this key is stamped into the
+          # packed manifest and the catalog entry in place of the source's PLACEHOLDER, so it is
+          # what says where the package came from. Repo secret, armored, no passphrase.
+          signing-key: ${{ secrets.REGISTRY_SIGNING_KEY }}
+          atom-repo: ${{ github.repository }}
+          list-name: 'Print Scheduler'
+          list-publisher: 'ebea5883b6b78915f54ce04155d4a458dd7e71ba'
+          list-ref-name: 'Print Scheduler'
+          main-index-repo: Bespok3d/main-index
+          # Empty until the index of lists can verify a list signed by this key: its sweep trusts
+          # exactly one public key, the org's. While the secret is unset the register step is
+          # skipped and everything else still runs, which is the whole first release: a signed
+          # package, its docs, and the assembled list, all as assets of this repo's own release.
+          main-index-token: ${{ secrets.MAIN_INDEX_TOKEN }}
