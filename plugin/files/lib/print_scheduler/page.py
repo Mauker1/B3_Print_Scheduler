@@ -38,7 +38,7 @@ h2 { font-size: 1rem; margin: 0 0 0.6rem; }
 section { border: 1px solid var(--line); border-radius: 0.6rem; padding: 1rem;
   margin-bottom: 1.1rem; }
 label { display: block; font-size: 0.85rem; margin-bottom: 0.15rem; }
-select, input[type=datetime-local], input[type=search] { width: 100%; padding: 0.45rem;
+select, input[type=search] { width: 100%; padding: 0.45rem;
   font: inherit; border: 1px solid var(--line); border-radius: 0.35rem; background: transparent;
   color: inherit; }
 .finder { display: flex; gap: 0.4rem; }
@@ -63,6 +63,12 @@ select, input[type=datetime-local], input[type=search] { width: 100%; padding: 0
   object-fit: contain; background: rgba(128,128,128,0.12); }
 .file-name { font-weight: 600; overflow-wrap: anywhere; font-size: 0.9rem; }
 .row { margin-bottom: 0.8rem; }
+/* The field asks for exactly its own width now that a button sits next to it, rather than
+   stretching across a form it never filled meaningfully. */
+.whenpick { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.whenpick input[type=datetime-local] { width: auto; flex: 0 0 auto; padding: 0.45rem;
+  border: 1px solid var(--line); border-radius: 0.35rem; background: transparent;
+  color: inherit; font: inherit; }
 .check { display: flex; gap: 0.5rem; align-items: flex-start; margin-bottom: 0.5rem;
   font-size: 0.9rem; }
 .check input { margin-top: 0.25rem; }
@@ -122,7 +128,10 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 <div id="file-facts"></div>
 <div class="row">
   <label for="start-at">Start it at</label>
-  <input type="datetime-local" id="start-at">
+  <div class="whenpick">
+    <input type="datetime-local" id="start-at">
+    <button class="link" type="button" id="pick-time">Pick a time</button>
+  </div>
   <p class="quiet" id="start-help"></p>
 </div>
 <div id="preferences"></div>
@@ -132,9 +141,10 @@ footer { font-size: 0.8rem; color: var(--quiet); }
   not a check.</label>
 </div>
 <div class="job-actions">
-  <button class="primary" id="save" disabled>Schedule it</button>
+  <button class="primary" id="save" aria-describedby="save-blocked" disabled>Schedule it</button>
   <button class="link" id="stop-editing" hidden>Stop editing</button>
 </div>
+<p class="quiet" id="save-blocked"></p>
 <div id="form-problem"></div>
 </section>
 
@@ -159,6 +169,7 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 // path here would point at the printer dashboard rather than at this plugin.
 var CLOCK_SKEW_TOLERANCE_SECONDS = 120;
 var REFRESH_MILLISECONDS = 10000;
+var FILES_REFRESH_MILLISECONDS = 15000;
 
 var state = { jobs: [], printer: null, summary: null, editing: null,
               files: [], chosen: "", armedToClear: false };
@@ -561,6 +572,29 @@ function refreshSaveButton() {
   var unplannable = state.summary && state.summary.plan && state.summary.plan.problem;
   document.getElementById("save").disabled =
     !chosen || !when || !acknowledged || Boolean(unplannable);
+  sayWhyTheButtonIsOff(chosen, when, acknowledged, unplannable);
+}
+
+// A button that is disabled and silent about it is a puzzle. This one had four separate
+// reasons to be off and named none of them, so the answer was to go and read the source.
+function sayWhyTheButtonIsOff(chosen, when, acknowledged, unplannable) {
+  var target = document.getElementById("save-blocked");
+  if (unplannable) {
+    // Already spelled out in full above the button, so this points rather than repeats.
+    target.textContent = "This file cannot be scheduled as the printer is loaded. See above.";
+    return;
+  }
+  var missing = [];
+  if (!chosen) { missing.push("a file"); }
+  if (!when) { missing.push("a time"); }
+  if (!acknowledged) { missing.push("your promise the bed will be clear"); }
+  target.textContent = missing.length ? "Still needed: " + inPlainList(missing) + "." : "";
+}
+
+function inPlainList(items) {
+  if (items.length === 1) { return items[0]; }
+
+  return items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
 }
 
 function startEditing(job) {
@@ -757,7 +791,15 @@ function loadPrinter() {
 
 function loadFiles() {
   return api("./files").then(function (payload) {
-    state.files = payload.files || [];
+    var arrived = payload.files || [];
+    // Redrawing a list somebody is scrolling loses their place and makes every lazy thumbnail
+    // request itself again. On a poll that is nearly always a no-op, so the list is only
+    // rebuilt when it has actually changed, and the common case disturbs nothing at all.
+    if (state.files.length && signatureOf(arrived) === signatureOf(state.files)) {
+      state.files = arrived;
+      return;
+    }
+    state.files = arrived;
     renderFiles();
     // The job rows take their pictures from this list, and the two requests land in whichever
     // order they land in, so the jobs are redrawn once the files are known.
@@ -765,6 +807,15 @@ function loadFiles() {
   }).catch(function (problem) {
     showProblem(document.getElementById("form-problem"), problem.message);
   });
+}
+
+// Everything the list draws from, and nothing else: a thumbnail appearing or a file being
+// reprinted should redraw, the order of two unrelated fields should not.
+function signatureOf(files) {
+  return files.map(function (file) {
+    return [file.filename, file.modified, file.last_printed, file.estimated_seconds,
+            file.has_thumbnail].join("\u0001");
+  }).join("\u0002");
 }
 
 function whenDay(epochSeconds) {
@@ -870,6 +921,14 @@ function loadSummary(filename) {
   });
 }
 
+// showPicker throws when the browser decides the call was not user activated, and it is absent
+// on anything older, so both are handled rather than left to become a console error.
+document.getElementById("pick-time").addEventListener("click", function () {
+  var when = document.getElementById("start-at");
+  if (typeof when.showPicker !== "function") { when.focus(); return; }
+  try { when.showPicker(); } catch (unavailable) { when.focus(); }
+});
+
 document.getElementById("file-search").addEventListener("input", renderFiles);
 document.getElementById("file-sort").addEventListener("change", renderFiles);
 document.getElementById("start-at").addEventListener("input", refreshSaveButton);
@@ -887,6 +946,18 @@ loadJobs();
 // Only the lists and the printer line are redrawn, never the form, so a refresh cannot swallow
 // what someone is halfway through typing.
 setInterval(function () { loadPrinter(); loadJobs(); }, REFRESH_MILLISECONDS);
+// Slower than the other two, because a directory read costs the printer more than a status
+// query, and skipped entirely while the tab is hidden: a page left open all day should not ask
+// a printer to walk its gcode directory four times a minute for nobody to look at.
+setInterval(function () {
+  if (document.visibilityState === "hidden") { return; }
+  loadFiles();
+}, FILES_REFRESH_MILLISECONDS);
+// And caught up the moment somebody comes back to the tab, so returning to it never shows a
+// list that is a poll behind.
+document.addEventListener("visibilitychange", function () {
+  if (document.visibilityState === "visible") { loadFiles(); }
+});
 </script>
 </body>
 </html>

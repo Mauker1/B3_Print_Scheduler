@@ -196,6 +196,37 @@ def check_the_file_list_itself(page: Page) -> None:
     )
 
 
+def check_the_file_list_refreshes_without_disturbing_anything(
+    page: Page, printer: StandInPrinter
+) -> None:
+    """Polling is easy; redrawing under somebody's hands is the part that had to be got right.
+
+    A rebuild loses the scroll position and makes every lazy thumbnail request itself again, so
+    an unchanged listing must leave the DOM entirely alone. The check is identity: the same
+    element object still in place after a poll that found nothing new.
+    """
+    print("\nThe file list refreshing itself")
+    page.evaluate("document.querySelector('#file-list .file').dataset.witness = 'original'")
+    page.evaluate("loadFiles()")
+    page.wait_for_timeout(200)
+    check(
+        "a poll that changes nothing redraws nothing",
+        page.evaluate("document.querySelector('#file-list .file').dataset.witness"),
+        "original",
+    )
+
+    printer.holds = frozenset({*printer.holds, "A_New_Slice_PLA_1m.gcode"})
+    page.evaluate("loadFiles()")
+    page.wait_for_selector(
+        '#file-list .file[data-filename="A_New_Slice_PLA_1m.gcode"]', timeout=PATIENCE_MILLISECONDS
+    )
+    check(
+        "a file appearing on the printer does redraw",
+        page.evaluate("document.querySelector('#file-list .file').dataset.witness"),
+        None,
+    )
+
+
 def check_choosing_a_file(page: Page, filename: str) -> None:
     print("\nChoosing a file")
     pick_the_file(page, filename)
@@ -216,8 +247,27 @@ def check_the_bed_promise_is_required(page: Page) -> None:
     print("\nThe promise about the bed")
     page.fill("#start-at", A_TIME_WELL_IN_THE_FUTURE)
     check("a time alone is still not enough", page.is_disabled("#save"), True)
+    # A disabled button that names none of its four reasons sends the reader to the source.
+    blocked = text_of(page, "#save-blocked")
+    check("and the page says what is still missing", "Still needed:" in blocked, True)
+    check("naming the promise", "bed will be clear" in blocked, True)
+    check("but not the things already given", "a file" in blocked, False)
     page.check("#bed-clear")
     check("promising the bed is clear enables it", page.is_enabled("#save"), True)
+    check("and nothing is said to be missing", text_of(page, "#save-blocked"), "")
+
+
+def check_the_time_picker_button(page: Page) -> None:
+    """A button rather than a click handler on the field: the date segments are shadow DOM, so
+    a click on one cannot be told from a click beside it, and opening the picker over somebody
+    typing is worse than the reload it replaced."""
+    print("\nThe time picker button")
+    check("there is a button for it", page.is_visible("#pick-time"), True)
+    typed = page.input_value("#start-at")
+    page.click("#pick-time")
+    # Whether a picker opens is the browser's business and headless may decline. What must not
+    # happen is a thrown error or a field quietly emptied under the user.
+    check("clicking it leaves the value alone", page.input_value("#start-at"), typed)
 
 
 def check_scheduling(page: Page) -> None:
@@ -419,8 +469,10 @@ def run_every_check(page: Page, printer: StandInPrinter, base_url: str) -> None:
     page.goto(base_url)
     check_the_page_before_anything_touches_it(page)
     check_the_file_list_itself(page)
+    check_the_file_list_refreshes_without_disturbing_anything(page, printer)
     check_choosing_a_file(page, sorted(printer.holds)[0])
     check_the_bed_promise_is_required(page)
+    check_the_time_picker_button(page)
     check_scheduling(page)
     check_editing_carries_the_jobs_own_choices(page)
     check_cancelling(page)

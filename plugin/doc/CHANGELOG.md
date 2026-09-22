@@ -5,6 +5,23 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.20
+
+From a review by another Bespok3d developer.
+
+- **The file list keeps itself up to date**, so slicing something new no longer means reloading
+  the page. It refreshes every fifteen seconds, and only redraws when the listing has actually
+  changed: a poll that finds nothing new leaves your scroll position and your thumbnails alone.
+  It also stops polling while the tab is hidden, rather than asking the printer to walk its
+  gcode directory four times a minute for nobody.
+- **A button to pick the time.** The date field is now only as wide as it needs to be, with
+  *Pick a time* beside it. Clicking inside the field itself still edits it by hand, which is why
+  the button is separate: the field's segments cannot be told apart from JavaScript, so opening
+  a picker on any click would interrupt anyone typing.
+- **The Schedule button says why it is disabled.** It had four separate reasons to be off and
+  named none of them. It now lists what is still needed, updating as you supply each, and says
+  so to a screen reader as well.
+
 ## 0.1.19
 
 - **Documented how to add the plugin to Mainsail's sidebar**, as a snippet you paste into your own

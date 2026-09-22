@@ -251,3 +251,8 @@ notes/
 # problem: the daemon refuses a package holding an archive member that the
 # manifest's files[] does not list.
 .DS_Store
+
+# Never. Keys do not live in a repository.
+*.asc
+*.gpg
+*.key
