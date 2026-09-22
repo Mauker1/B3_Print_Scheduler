@@ -65,7 +65,8 @@ templates and places the files, wires the symlinks, and restarts the named servi
   guesswork once it is not. The entry says what changed for somebody using the plugin and why it
   was worth changing, not which files moved. A version with no entry is an unfinished change, and
   no heading is ever left marked as in development, because by the time it is committed it is
-  released.
+  released. `CHANGELOG-alpha.md` at the repository root is the pre-release history, frozen at the
+  first release. It is never added to and never packaged.
 
 ## The non-negotiables
 
