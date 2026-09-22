@@ -20,11 +20,14 @@ printer's flash is spared four thousand writes a day for a number nobody reads a
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 # Long enough that a printer switched off overnight, or a plugin upgraded between two breaths,
 # says nothing at all. Short enough that a forgotten uninstall or a quiet deactivation is caught
 # well before the print it would have started.
+_log = logging.getLogger("bespok3d.print_scheduler")
+
 A_LONG_SILENCE_SECONDS = 24 * 60 * 60
 
 # How often the mark is rewritten while the service is up. See the note above about flash.
@@ -77,6 +80,6 @@ class Heartbeat:
             being_written.write_text(f"{now:.0f}\n", encoding="utf-8")
             being_written.replace(self.path)
         except OSError as unwritable:
-            print(f"could not record being alive at {self.path}: {unwritable}", flush=True)
+            _log.warning("could not record being alive at %s: %s", self.path, unwritable)
             return
         self._marked_at = now

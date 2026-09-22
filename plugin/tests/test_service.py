@@ -26,13 +26,12 @@ from print_scheduler import (
     ScheduleRejectedError,
     ScheduleService,
     ScheduleStore,
+    Settings,
     SetupTime,
     SetupTimes,
     overlapping_job_ids,
     payload_for,
     projected_finish,
-    read_settled_kept,
-    read_tolerance_seconds,
     trimmed_to,
 )
 from printer_stand_in import (
@@ -72,7 +71,7 @@ def a_service(
     return ScheduleService(
         ScheduleStore(tmp_path / "jobs.json"),
         printer or StandInPrinter(),
-        tmp_path / "user_vars.json",
+        Settings(tmp_path / "user_vars.json"),
         heartbeat,
     )
 
@@ -228,17 +227,17 @@ def test_the_tolerance_is_read_fresh_so_a_change_needs_no_restart(tmp_path: Path
 
 
 def test_a_missing_or_broken_user_vars_file_is_the_default(tmp_path: Path) -> None:
-    assert read_tolerance_seconds(tmp_path / "never-written.json") == 5 * 60
+    assert Settings(tmp_path / "never-written.json").tolerance_seconds() == 5 * 60
     broken = tmp_path / "broken.json"
     broken.write_text("{ not json", encoding="utf-8")
-    assert read_tolerance_seconds(broken) == 5 * 60
+    assert Settings(broken).tolerance_seconds() == 5 * 60
 
 
 def test_a_tolerance_written_as_text_by_the_daemon_still_reads(tmp_path: Path) -> None:
     # The config field is declared as a number, but the daemon owns this file and we are a guest.
     path = tmp_path / "user_vars.json"
     path.write_text(json.dumps({"START_TOLERANCE_MINUTES": "9"}), encoding="utf-8")
-    assert read_tolerance_seconds(path) == 9 * 60
+    assert Settings(path).tolerance_seconds() == 9 * 60
 
 
 def test_a_job_landing_inside_an_earlier_ones_run_is_flagged(tmp_path: Path) -> None:
@@ -434,14 +433,14 @@ def test_a_low_cap_never_reaches_a_job_that_has_not_run(tmp_path: Path) -> None:
 
 
 def test_an_unset_cap_is_the_default_rather_than_nothing_kept(tmp_path: Path) -> None:
-    assert read_settled_kept(tmp_path / "absent.json") == 25
+    assert Settings(tmp_path / "absent.json").settled_kept() == 25
     (tmp_path / "nonsense.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": "many"}))
-    assert read_settled_kept(tmp_path / "nonsense.json") == 25
+    assert Settings(tmp_path / "nonsense.json").settled_kept() == 25
     (tmp_path / "negative.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": -3}))
-    assert read_settled_kept(tmp_path / "negative.json") == 25
+    assert Settings(tmp_path / "negative.json").settled_kept() == 25
     # Zero is a real answer: keep nothing once a job has settled.
     (tmp_path / "none.json").write_text(json.dumps({"SETTLED_JOBS_KEPT": 0}))
-    assert read_settled_kept(tmp_path / "none.json") == 0
+    assert Settings(tmp_path / "none.json").settled_kept() == 0
 
 
 def test_a_settled_job_can_be_forgotten(tmp_path: Path) -> None:
@@ -664,10 +663,10 @@ def test_a_tolerance_of_zero_is_a_real_answer_and_a_negative_one_is_not(tmp_path
     to bound a number field, so the reader is the only place this can be caught.
     """
     (tmp_path / "zero.json").write_text(json.dumps({"START_TOLERANCE_MINUTES": 0}))
-    assert read_tolerance_seconds(tmp_path / "zero.json") == 0.0
+    assert Settings(tmp_path / "zero.json").tolerance_seconds() == 0.0
 
     (tmp_path / "negative.json").write_text(json.dumps({"START_TOLERANCE_MINUTES": -5}))
-    assert read_tolerance_seconds(tmp_path / "negative.json") == 5 * 60.0
+    assert Settings(tmp_path / "negative.json").tolerance_seconds() == 5 * 60.0
 
     (tmp_path / "absent.json").write_text(json.dumps({}))
-    assert read_tolerance_seconds(tmp_path / "absent.json") == 5 * 60.0
+    assert Settings(tmp_path / "absent.json").tolerance_seconds() == 5 * 60.0

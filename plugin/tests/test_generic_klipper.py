@@ -23,6 +23,7 @@ from print_scheduler import (
     ScheduleRejectedError,
     ScheduleService,
     ScheduleStore,
+    Settings,
     reason_filename_cannot_start,
     run_tick,
 )
@@ -37,7 +38,7 @@ def a_service(tmp_path: Path, printer: object) -> ScheduleService:
     return ScheduleService(
         ScheduleStore(tmp_path / "jobs.json"),
         printer,  # type: ignore[arg-type]
-        tmp_path / "user_vars.json",
+        Settings(tmp_path / "user_vars.json"),
     )
 
 

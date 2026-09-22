@@ -9,17 +9,21 @@ that can cause a print to begin.
 from __future__ import annotations
 
 import argparse
+import logging
 import signal
+import sys
 import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
 from types import FrameType
+from typing import TextIO
 
 from print_scheduler.heartbeat import Heartbeat
 from print_scheduler.moonraker import MoonrakerPrinter
 from print_scheduler.server import SERVICE_NAME, SERVICE_VERSION, build_server
 from print_scheduler.service import ScheduleService
+from print_scheduler.settings import Settings
 from print_scheduler.store import ScheduleStore
 
 # A job that takes nine hours does not need a tighter loop than this, and a loop that wakes rarely
@@ -54,6 +58,39 @@ def build_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# The name Bespok3d's own plugins log under. Ours is a service in its own process rather than
+# code running inside Klipper, so nothing configures logging for it and this module, the entry
+# point rather than the library, attaches the handler.
+_log = logging.getLogger("bespok3d.print_scheduler")
+
+# Matching the shared log's own layout, so that the day a service plugin has a supported route
+# into it, the lines already look like the ones beside them.
+LOG_FORMAT = "%(asctime)s %(name)s: %(message)s"
+
+
+def start_logging(stream: TextIO | None = None) -> None:
+    """Send our log to stdout, which the daemon already captures per plugin.
+
+    Deliberately not to `/userdata/bespok3d/var/logs/bespok3d.log`. Klipper's process appends to
+    that file continuously, and a second unrelated writer with no locking is how interleaved
+    lines happen. It also sits in no directory this plugin declared, and its path is one
+    printer's rather than every printer's. Our stdout lands in `var/log/print-scheduler.log`,
+    which the daemon set up for us, and which is where the other service plugins' output goes.
+
+    Levels are the part worth having either way: a setting that cannot be used is a warning
+    rather than a line indistinguishable from chatter.
+    """
+    handler = logging.StreamHandler(stream or sys.stdout)
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    ours = logging.getLogger("bespok3d")
+    ours.handlers.clear()
+    ours.addHandler(handler)
+    ours.setLevel(logging.INFO)
+    # Ours alone. Attaching to the root logger would adopt every library's output, and
+    # propagating would hand our lines to a root handler nobody in this process configured.
+    ours.propagate = False
+
+
 def tick_once(service: ScheduleService) -> None:
     """One pass over the schedule, where a failure is reported rather than fatal."""
     try:
@@ -61,7 +98,7 @@ def tick_once(service: ScheduleService) -> None:
     except Exception as problem:
         # A tick that raises must not take the loop with it. The printer being briefly odd is not a
         # reason for the scheduler to stop existing until someone notices and restarts it.
-        print(f"{SERVICE_NAME} tick failed: {problem!r}", flush=True)
+        _log.exception("tick failed: %r", problem)
 
 
 def keep_ticking(
@@ -81,10 +118,11 @@ def keep_ticking(
 def main(argv: Sequence[str]) -> int:
     """Serve, and tick, until a signal asks us to stop."""
     arguments = build_argument_parser().parse_args(argv)
+    start_logging()
     service = ScheduleService(
         ScheduleStore(Path(arguments.state)),
         MoonrakerPrinter(arguments.moonraker),
-        Path(arguments.user_vars),
+        Settings(Path(arguments.user_vars)),
         # Beside the schedule rather than given its own argument: it is the same data
         # directory, it lives and dies with the schedule it describes, and a second path to
         # get wrong in the manifest buys nothing.
@@ -99,17 +137,21 @@ def main(argv: Sequence[str]) -> int:
     def request_shutdown(signal_number: int, _frame: FrameType | None) -> None:
         # shutdown() blocks until serve_forever returns, and a signal handler runs on the very
         # thread that is inside serve_forever, so calling it here directly deadlocks. Hand it off.
-        print(f"{SERVICE_NAME} stopping on signal {signal_number}", flush=True)
+        _log.info("stopping on signal %s", signal_number)
         stopping.set()
         threading.Thread(target=server.shutdown, name="print-scheduler-shutdown").start()
 
     signal.signal(signal.SIGTERM, request_shutdown)
     signal.signal(signal.SIGINT, request_shutdown)
 
-    print(
-        f"{SERVICE_NAME} {SERVICE_VERSION} listening on {arguments.bind}:{arguments.port}, "
-        f"moonraker {arguments.moonraker}, schedule {arguments.state}",
-        flush=True,
+    _log.info(
+        "%s %s listening on %s:%s, moonraker %s, schedule %s",
+        SERVICE_NAME,
+        SERVICE_VERSION,
+        arguments.bind,
+        arguments.port,
+        arguments.moonraker,
+        arguments.state,
     )
     ticking.start()
     try:

@@ -240,6 +240,12 @@ A tick is not instantaneous, Moonraker can be briefly unreachable while the prin
 Klipper can sit in startup for a few seconds. All three are worth another try or two. A printer that
 is busy is never waited for, whatever this is set to.
 
+A value this plugin cannot use, such as a negative number or a word where a number belongs,
+falls back to the default rather than stopping anything. It does not do so silently: the page
+says which setting was ignored, what it was set to, and what is being used instead, and the
+same is recorded once in the log. Fix the setting and the warning goes away on its own, without
+restarting anything.
+
 Zero is allowed and means exactly what it says: no lateness at all is tolerated. Because the
 scheduler looks at the schedule every twenty seconds rather than continuously, a job is almost
 never seen at the precise second it is due, so zero cancels nearly every job as missed. It is a

@@ -11,11 +11,10 @@ Refusing happens here, not in the page. A page can be bypassed; this cannot.
 
 from __future__ import annotations
 
-import json
+import logging
 import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Any
 
 from print_scheduler.gcode_files import FileRow, FileSummary, file_rows, summarise
@@ -34,15 +33,9 @@ from print_scheduler.printer import (
     PrintRecord,
 )
 from print_scheduler.runner import cancel_by_hand, run_tick
+from print_scheduler.settings import Settings
 from print_scheduler.store import ScheduleStore
 from print_scheduler.tool_mapping import ToolPlan, plan_tools
-
-DEFAULT_TOLERANCE_MINUTES = 5.0
-SECONDS_PER_MINUTE = 60.0
-TOLERANCE_VARIABLE = "START_TOLERANCE_MINUTES"
-
-SETTLED_KEPT_VARIABLE = "SETTLED_JOBS_KEPT"
-DEFAULT_SETTLED_KEPT = 25
 
 # How many settled jobs are kept on disk whatever the display cap says. A settled job is the
 # only record of which levelling choice a print was started with, and the printer's history
@@ -51,6 +44,8 @@ DEFAULT_SETTLED_KEPT = 25
 # comfortably above the ten finished prints the measurement window reaches back over, with
 # room for a run that is all one levelling choice.
 LABELS_WORTH_KEEPING = 30
+
+_log = logging.getLogger("bespok3d.print_scheduler")
 
 SETTLED_STATES = (JobState.STARTED, JobState.CANCELLED)
 
@@ -74,40 +69,6 @@ class JobRequest:
     bed_acknowledged: bool = False
     level_bed: bool | None = None
     record_timelapse: bool | None = None
-
-
-def read_tolerance_seconds(user_vars_path: Path) -> float:
-    """Read the lateness tolerance the person set at install.
-
-    Read afresh every time rather than at startup, so changing it in the app takes effect without
-    restarting the service. An unreadable or absent file is the default, not a crash: the daemon
-    writes this file and we are a guest in it.
-    """
-    try:
-        values = json.loads(user_vars_path.read_text(encoding="utf-8"))
-        minutes = float(values[TOLERANCE_VARIABLE])
-    except (OSError, ValueError, KeyError, TypeError):
-        return DEFAULT_TOLERANCE_MINUTES * SECONDS_PER_MINUTE
-    # Zero is a real answer and a deliberate one: tolerate no lateness at all. A negative is
-    # not an answer, and it used to clamp to zero, which meant one mistyped minus sign turned
-    # the scheduler into something that cancels nearly every job. It reads as the default now,
-    # which is what the settled jobs reader already did with a negative.
-    return (minutes if minutes >= 0 else DEFAULT_TOLERANCE_MINUTES) * SECONDS_PER_MINUTE
-
-
-def read_settled_kept(user_vars_path: Path) -> int:
-    """How many settled jobs to keep, from the same file and with the same forgiveness.
-
-    Read afresh rather than at startup, so changing it in the app takes effect without a
-    restart. Zero is a real answer, meaning keep nothing once a job has settled; a negative
-    one is not, and reads as the default.
-    """
-    try:
-        values = json.loads(user_vars_path.read_text(encoding="utf-8"))
-        kept = int(float(values[SETTLED_KEPT_VARIABLE]))
-    except (OSError, ValueError, KeyError, TypeError):
-        return DEFAULT_SETTLED_KEPT
-    return kept if kept >= 0 else DEFAULT_SETTLED_KEPT
 
 
 def trimmed_to(jobs: Sequence[Job], kept: int) -> list[Job]:
@@ -178,12 +139,12 @@ class ScheduleService:
         self,
         store: ScheduleStore,
         printer: Printer,
-        user_vars_path: Path,
+        settings: Settings,
         heartbeat: Heartbeat | None = None,
     ) -> None:
         self._store = store
         self._printer = printer
-        self._user_vars_path = user_vars_path
+        self._settings = settings
         self._heartbeat = heartbeat
         # Asked once, on the first tick, because that is the first moment a clock is handed in
         # and the last moment before anything could be started.
@@ -195,12 +156,15 @@ class ScheduleService:
         with self._lock:
             return list(self._jobs)
 
+    def settings(self) -> Settings:
+        return self._settings
+
     def tolerance_seconds(self) -> float:
-        return read_tolerance_seconds(self._user_vars_path)
+        return self._settings.tolerance_seconds()
 
     def settled_kept(self) -> int:
         """How many settled jobs to show. A display preference, and only that."""
-        return read_settled_kept(self._user_vars_path)
+        return self._settings.settled_kept()
 
     def settled_stored(self) -> int:
         """How many settled jobs to keep on disk, which is never fewer than the projection needs."""
@@ -254,10 +218,11 @@ class ScheduleService:
         if not waiting:
             return
         held = {job.job_id for job in waiting}
-        print(
-            f"the scheduler was away for {away / 3600:.0f} hours; "
-            f"holding {len(held)} scheduled job(s) until somebody confirms them",
-            flush=True,
+        _log.warning(
+            "the scheduler was away for %.0f hours; holding %d scheduled job(s) "
+            "until somebody confirms them",
+            away / 3600,
+            len(held),
         )
         self._remember(
             [replace(job, held=True) if job.job_id in held else job for job in self._jobs]

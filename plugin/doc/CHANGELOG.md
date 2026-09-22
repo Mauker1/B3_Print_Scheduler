@@ -5,6 +5,22 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.18
+
+- **A setting the plugin cannot use now says so, on the page.** A negative number, or a word
+  where a number belongs, has always fallen back to the default; it used to do it in silence,
+  which left you with a printer behaving differently from the number you were looking at. The
+  page names the setting, what it is set to, and what is being used instead. Fixing it clears
+  the warning on its own.
+- The same is recorded in the log, once per setting per run rather than on every read, because
+  these settings are read on every tick and on every refresh of the page.
+- **Both settings get this**, not just the one that prompted it.
+- **The plugin now logs through Python's logging, at levels**, under the name Bespok3d's own
+  plugins use. Output still goes where it always did, this plugin's own
+  `var/log/print-scheduler.log`, so nothing moves; what changes is that a warning is now
+  distinguishable from ordinary chatter, and that the lines are formatted like the ones in the
+  shared log, ready for the day a service plugin has a supported way of reaching it.
+
 ## 0.1.17
 
 - **A job late by less than a minute now says so in seconds.** Durations in the missed reason

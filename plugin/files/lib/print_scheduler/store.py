@@ -11,12 +11,15 @@ schedule is recoverable, not knowing it was lost is not.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from print_scheduler.jobs import Job, job_from_dict
+
+_log = logging.getLogger("bespok3d.print_scheduler")
 
 SCHEDULE_FORMAT_VERSION = 1
 
@@ -58,8 +61,11 @@ class ScheduleStore:
         try:
             self.path.replace(spoiled)
         except OSError as immovable:
-            print(f"schedule at {self.path} is unreadable ({problem}) and immovable ({immovable})",
-                  flush=True)
+            _log.error(
+                "schedule at %s is unreadable (%s) and immovable (%s)",
+                self.path, problem, immovable,
+            )
             return
-        print(f"schedule at {self.path} could not be read ({problem}); moved to {spoiled}",
-              flush=True)
+        _log.error(
+            "schedule at %s could not be read (%s); moved to %s", self.path, problem, spoiled
+        )

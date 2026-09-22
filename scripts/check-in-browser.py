@@ -35,6 +35,7 @@ import sys
 sys.dont_write_bytecode = True
 
 import base64  # noqa: E402  after the bytecode setting
+import json  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
@@ -65,7 +66,9 @@ from print_scheduler import (  # noqa: E402
     PrintRecord,
     ScheduleService,
     ScheduleStore,
+    Settings,
     build_server,
+    start_logging,
 )
 from printer_stand_in import (  # noqa: E402
     BENCHY,
@@ -428,6 +431,35 @@ def run_every_check(page: Page, printer: StandInPrinter, base_url: str) -> None:
     check_a_file_whose_material_is_not_loaded(page, printer)
 
 
+def check_a_setting_the_plugin_cannot_use(scratch: Path, printer: StandInPrinter) -> None:
+    """A setting the plugin falls back on is said on the page, not only in the log.
+
+    The person who typed it is looking at the app, and a printer quietly behaving differently
+    from the number on screen is the failure worth avoiding.
+    """
+    print("\nA setting that cannot be used")
+    (scratch / "user_vars.json").write_text(
+        json.dumps({"START_TOLERANCE_MINUTES": -1}), encoding="utf-8"
+    )
+    base_url, server, _service = serve(scratch, printer)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page()
+            watch_for_complaints(page)
+            page.goto(base_url)
+            page.wait_for_selector("#settings-warning .warn", timeout=PATIENCE_MILLISECONDS)
+            said = text_of(page, "#settings-warning")
+            check("the page names the setting", "START_TOLERANCE_MINUTES" in said, True)
+            check("what was found", "-1" in said, True)
+            check("and what is being used instead", "5 minutes" in said, True)
+            check("the printer line still says the default is in force",
+                  "up to 5 minutes late" in text_of(page, "#printer-line"), True)
+            browser.close()
+    finally:
+        server.shutdown()
+
+
 def a_schedule_left_behind(scratch: Path) -> Heartbeat:
     """A waiting job, and a heartbeat saying the scheduler has been away a day and a half."""
     now = time.time()
@@ -495,7 +527,7 @@ def serve(
     service = ScheduleService(
         ScheduleStore(scratch / "jobs.json"),
         printer,
-        scratch / "user_vars.json",
+        Settings(scratch / "user_vars.json"),
         heartbeat,
     )
     server = build_server("127.0.0.1", 0, service)
@@ -517,6 +549,10 @@ def report() -> int:
 
 
 def main() -> int:
+    # The real entry point configures logging; without it INFO falls below stdlib's lastResort
+    # and vanishes, which is the bug this plugin was just fixed not to have. Calling it here
+    # means the harness exercises the wiring rather than quietly proving it is missing.
+    start_logging()
     printer = StandInPrinter(
         describes={**WHITE_PLA_METADATA, "thumbnails": THUMBNAILS_THE_SLICER_WROTE},
         remembers=PRINTS_THAT_FINISHED,
@@ -536,6 +572,8 @@ def main() -> int:
             browser.close()
         server.shutdown()
         check_what_a_long_silence_looks_like(Path(scratch), printer)
+    with tempfile.TemporaryDirectory() as scratch:
+        check_a_setting_the_plugin_cannot_use(Path(scratch), printer)
     return report()
 
 

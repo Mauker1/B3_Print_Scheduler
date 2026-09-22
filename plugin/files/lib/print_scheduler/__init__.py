@@ -7,7 +7,13 @@ for names rather than importing files. That is what lets these modules be split,
 later without a single test changing.
 """
 
-from print_scheduler.cli import build_argument_parser, keep_ticking, main, tick_once
+from print_scheduler.cli import (
+    build_argument_parser,
+    keep_ticking,
+    main,
+    start_logging,
+    tick_once,
+)
 from print_scheduler.gcode_files import (
     FileRow,
     FileSummary,
@@ -89,9 +95,13 @@ from print_scheduler.service import (
     overlapping_job_ids,
     payload_for,
     projected_finish,
-    read_settled_kept,
-    read_tolerance_seconds,
     trimmed_to,
+)
+from print_scheduler.settings import (
+    DEFAULT_SETTLED_KEPT,
+    DEFAULT_TOLERANCE_MINUTES,
+    Ignored,
+    Settings,
 )
 from print_scheduler.store import ScheduleStore
 from print_scheduler.tool_mapping import (
@@ -159,19 +169,22 @@ __all__ = [
     "normalise_colour",
     "A_LONG_SILENCE_SECONDS",
     "Heartbeat",
+    "DEFAULT_SETTLED_KEPT",
+    "DEFAULT_TOLERANCE_MINUTES",
+    "Ignored",
     "LABELS_WORTH_KEEPING",
+    "Settings",
     "MARK_NO_MORE_OFTEN_THAN_SECONDS",
     "overlapping_job_ids",
     "payload_for",
     "plan_tools",
     "print_records_from_history",
     "projected_finish",
-    "read_settled_kept",
-    "read_tolerance_seconds",
     "reason_filename_cannot_start",
     "render_schedule_page",
     "run_tick",
     "snapshot_from_status",
+    "start_logging",
     "measure_setup_times",
     "measure_start_routine",
     "split_slicer_list",

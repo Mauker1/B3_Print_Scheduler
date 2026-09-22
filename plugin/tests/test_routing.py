@@ -20,7 +20,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import pytest
-from print_scheduler import ScheduleService, ScheduleStore, build_server
+from print_scheduler import ScheduleService, ScheduleStore, Settings, build_server
 from printer_stand_in import BENCHY, StandInPrinter
 
 SIX_IN_THE_MORNING = 1_758_348_000.0
@@ -33,7 +33,7 @@ def fixture_served(tmp_path: Path) -> Iterator[tuple[str, ScheduleService]]:
     service = ScheduleService(
         ScheduleStore(tmp_path / "jobs.json"),
         StandInPrinter(thumbnail_bytes=b"a picture"),
-        tmp_path / "user_vars.json",
+        Settings(tmp_path / "user_vars.json"),
     )
     server = build_server("127.0.0.1", 0, service)
     serving = threading.Thread(

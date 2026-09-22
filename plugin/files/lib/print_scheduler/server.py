@@ -16,6 +16,7 @@ cannot quietly schedule a print on your machine.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections.abc import Callable
 from http import HTTPStatus
@@ -30,6 +31,8 @@ from print_scheduler.service import (
     ScheduleRejectedError,
     ScheduleService,
 )
+
+_log = logging.getLogger("bespok3d.print_scheduler")
 
 SERVICE_NAME = "print-scheduler"
 
@@ -153,9 +156,12 @@ class SchedulerRequestHandler(BaseHTTPRequestHandler):
         self.respond(status, body, JSON_CONTENT_TYPE)
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
-        # The daemon writes this service's stdout to $BESPOK3D/var/log/print-scheduler.log, which is
-        # the first place to look when it does not start.
-        print(f"[{self.log_date_time_string()}] {format % args}", flush=True)
+        # Every request, so INFO rather than anything louder, and through the same logger as the
+        # rest of us. The daemon writes this service's output to
+        # $BESPOK3D/var/log/print-scheduler.log, which is the first place to look when it does
+        # not start. BaseHTTPRequestHandler would otherwise write straight to stderr, unformatted
+        # and outside every level we set.
+        _log.info(format, *args)
 
 
 Route = Callable[[SchedulerRequestHandler], None]
@@ -250,6 +256,9 @@ def serve_printer(handler: SchedulerRequestHandler) -> None:
             "printer_time": time.time(),
             "supports_print_preferences": schedule.supports_print_preferences(),
             "tolerance_minutes": schedule.tolerance_seconds() / 60.0,
+            # Shown on the page as well as logged, because the person who typed a value the
+            # plugin cannot use is looking at the app, not at a file on the printer.
+            "settings_ignored": [one.sentence() for one in schedule.settings().ignored()],
         },
     )
 

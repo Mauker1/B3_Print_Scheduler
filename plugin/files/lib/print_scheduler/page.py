@@ -100,6 +100,7 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 <h1>Print Scheduler</h1>
 <p class="quiet" id="printer-line">Asking the printer...</p>
 <div id="clock-warning"></div>
+<div id="settings-warning"></div>
 
 <section>
 <h2 id="form-heading">Schedule a print</h2>
@@ -275,6 +276,8 @@ function renderPrinter() {
     describePrinter(printer) + " A job may start up to " + tolerance +
     (tolerance === 1 ? " minute" : " minutes") + " late.";
 
+  renderIgnoredSettings(printer.settings_ignored || []);
+
   var skew = Math.abs(printer.printer_time - (Date.now() / 1000));
   var warning = document.getElementById("clock-warning");
   if (skew > CLOCK_SKEW_TOLERANCE_SECONDS) {
@@ -285,6 +288,17 @@ function renderPrinter() {
   } else {
     replaceChildren(warning, []);
   }
+}
+
+// A setting the plugin cannot use falls back to its default, and says so here as well as in
+// the log. The person who typed it is looking at the app, not at a file on the printer, and a
+// printer quietly behaving differently from the number on screen is the failure to avoid.
+function renderIgnoredSettings(sentences) {
+  var target = document.getElementById("settings-warning");
+  if (!sentences.length) { replaceChildren(target, []); return; }
+  replaceChildren(target, sentences.map(function (sentence) {
+    return element("p", "warn", sentence);
+  }));
 }
 
 // ---- the file you picked ----------------------------------------------------------------------
