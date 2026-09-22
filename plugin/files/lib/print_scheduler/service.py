@@ -87,8 +87,12 @@ def read_tolerance_seconds(user_vars_path: Path) -> float:
         values = json.loads(user_vars_path.read_text(encoding="utf-8"))
         minutes = float(values[TOLERANCE_VARIABLE])
     except (OSError, ValueError, KeyError, TypeError):
-        minutes = DEFAULT_TOLERANCE_MINUTES
-    return max(minutes, 0.0) * SECONDS_PER_MINUTE
+        return DEFAULT_TOLERANCE_MINUTES * SECONDS_PER_MINUTE
+    # Zero is a real answer and a deliberate one: tolerate no lateness at all. A negative is
+    # not an answer, and it used to clamp to zero, which meant one mistyped minus sign turned
+    # the scheduler into something that cancels nearly every job. It reads as the default now,
+    # which is what the settled jobs reader already did with a negative.
+    return (minutes if minutes >= 0 else DEFAULT_TOLERANCE_MINUTES) * SECONDS_PER_MINUTE
 
 
 def read_settled_kept(user_vars_path: Path) -> int:

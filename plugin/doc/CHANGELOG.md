@@ -5,6 +5,21 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.17
+
+- **A job late by less than a minute now says so in seconds.** Durations in the missed reason
+  were floored to whole minutes, so a job cancelled seven seconds late read "its time passed 0
+  minutes ago, beyond a tolerance of 0 minutes", which sounds like a bug in the plugin rather
+  than the setting you typed. It now reads "its time passed 7 seconds ago, beyond a tolerance
+  of 0 seconds".
+- **A tolerance of zero is a real setting**, and the documentation now says what it does: no
+  lateness at all is tolerated, which cancels nearly every job, because the scheduler looks
+  every twenty seconds rather than continuously. It is the quickest way to see a missed job,
+  and it is not a way to make prints start punctually.
+- **A negative tolerance now reads as the default rather than as zero.** It used to clamp, so
+  one mistyped minus sign quietly turned the scheduler into something that cancelled almost
+  everything.
+
 ## 0.1.16
 
 - **The busy refusal says what happened and stops.** It used to add that a busy printer is

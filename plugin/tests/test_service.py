@@ -654,3 +654,20 @@ def test_the_hold_is_asked_once_and_not_on_every_tick(tmp_path: Path) -> None:
 
     assert not any(job.held for job in after.jobs())
     assert not next(job for job in after.jobs() if job.job_id == fresh.job_id).held
+
+
+def test_a_tolerance_of_zero_is_a_real_answer_and_a_negative_one_is_not(tmp_path: Path) -> None:
+    """Zero tolerates no lateness at all, which is a thing somebody can mean and can test with.
+
+    A negative is not an answer. It used to clamp to zero, so one mistyped minus sign turned
+    the scheduler into something that cancelled nearly every job, and the platform has no way
+    to bound a number field, so the reader is the only place this can be caught.
+    """
+    (tmp_path / "zero.json").write_text(json.dumps({"START_TOLERANCE_MINUTES": 0}))
+    assert read_tolerance_seconds(tmp_path / "zero.json") == 0.0
+
+    (tmp_path / "negative.json").write_text(json.dumps({"START_TOLERANCE_MINUTES": -5}))
+    assert read_tolerance_seconds(tmp_path / "negative.json") == 5 * 60.0
+
+    (tmp_path / "absent.json").write_text(json.dumps({}))
+    assert read_tolerance_seconds(tmp_path / "absent.json") == 5 * 60.0

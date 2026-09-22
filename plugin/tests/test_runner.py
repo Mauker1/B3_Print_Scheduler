@@ -473,3 +473,35 @@ def test_a_multi_tool_job_whose_material_left_the_machine_overnight_is_cancelled
     assert settled.state is JobState.CANCELLED
     assert settled.refusal is Refusal.NO_TOOLHEAD_FOR_THE_MATERIAL
     assert printer.started == []
+
+
+def test_a_job_seconds_late_says_seconds_rather_than_zero_minutes() -> None:
+    """The reason a tolerance of zero was unusable, and it was the wording, not the behaviour.
+
+    Flooring to whole minutes turned a job cancelled seven seconds late into "its time passed
+    0 minutes ago, beyond a tolerance of 0 minutes", which reads as a bug in the plugin rather
+    than as the setting somebody typed.
+    """
+    settled = settle(a_job(), StandInPrinter(), now=SIX_IN_THE_MORNING + 7, tolerance=0.0)
+    assert settled.refusal is Refusal.MISSED
+    assert settled.detail == "its time passed 7 seconds ago, beyond a tolerance of 0 seconds"
+
+
+def test_a_tolerance_of_zero_still_starts_a_job_that_is_not_late() -> None:
+    # Zero means no lateness is tolerated, not that nothing may ever run.
+    settled = settle(a_job(), StandInPrinter(), now=SIX_IN_THE_MORNING, tolerance=0.0)
+    assert settled.state is JobState.STARTING
+
+
+def test_minutes_are_still_minutes_once_there_is_a_minute_to_report() -> None:
+    settled = settle(
+        a_job(), StandInPrinter(), now=SIX_IN_THE_MORNING + 400, tolerance=FIVE_MINUTES
+    )
+    assert settled.detail == "its time passed 6 minutes ago, beyond a tolerance of 5 minutes"
+
+
+def test_one_of_a_unit_is_singular() -> None:
+    settled = settle(a_job(), StandInPrinter(), now=SIX_IN_THE_MORNING + 1, tolerance=0.0)
+    assert "1 second ago" in settled.detail
+    settled = settle(a_job(), StandInPrinter(), now=SIX_IN_THE_MORNING + 121, tolerance=60.0)
+    assert "2 minutes ago, beyond a tolerance of 1 minute" in settled.detail

@@ -240,6 +240,13 @@ A tick is not instantaneous, Moonraker can be briefly unreachable while the prin
 Klipper can sit in startup for a few seconds. All three are worth another try or two. A printer that
 is busy is never waited for, whatever this is set to.
 
+Zero is allowed and means exactly what it says: no lateness at all is tolerated. Because the
+scheduler looks at the schedule every twenty seconds rather than continuously, a job is almost
+never seen at the precise second it is due, so zero cancels nearly every job as missed. It is a
+real setting rather than a mistake, and it is the quickest way to see what a missed job looks
+like, but it is not a way to make prints start punctually. A negative number is not an answer to
+anything and reads as the default.
+
 **Finished jobs to keep** (default 25). The settled list is trimmed to this many, newest first,
 whenever the schedule changes. Jobs that have not run yet are never trimmed. Zero keeps nothing
 once a job has settled. It only changes how many rows you see: the scheduler keeps enough

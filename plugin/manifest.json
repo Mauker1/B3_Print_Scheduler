@@ -1,7 +1,7 @@
 {
   "name": "print-scheduler",
   "title": "Print Scheduler",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Pick a sliced file that is already on the printer, pick when it should start, and the printer starts it for you at that time.\n\nThe scheduler refuses far more often than it starts. It will not start a job on a printer that is not idle, it will not start a job whose time has already passed, and it records a reason for every job it did not start. It cannot see the bed, so the person scheduling a job is the one promising the bed will be clear.",
   "tagline": "Start a print at a time you choose.",
   "category": "printing",
@@ -40,7 +40,7 @@
       "type": "number",
       "placeholder": "5",
       "default": 5,
-      "hint": "A job noticed within this many minutes of its time still starts. Past it, the job is cancelled and the reason is recorded. A printer that is busy is never waited for, whatever this is set to.",
+      "hint": "A job noticed within this many minutes of its time still starts. Past it, the job is cancelled and the reason is recorded. A printer that is busy is never waited for, whatever this is set to. Zero tolerates no lateness at all, which cancels nearly every job, because the scheduler looks every 20 seconds rather than continuously.",
       "required": true,
       "userEditable": true
     },

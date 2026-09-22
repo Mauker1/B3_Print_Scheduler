@@ -101,8 +101,20 @@ ANOTHER_JOB_STARTED = Decision(
 )
 
 
-def _in_minutes(seconds: float) -> int:
-    return int(seconds // SECONDS_PER_MINUTE)
+def _said_plainly(seconds: float) -> str:
+    """A duration in the largest unit that does not round it away.
+
+    Flooring to whole minutes was the whole of this, which reported anything under a minute as
+    "0 minutes" and produced "its time passed 0 minutes ago, beyond a tolerance of 0 minutes"
+    for a job cancelled seven seconds late. A reason that reads as nonsense is worse than no
+    reason at all, because it sends the reader looking for a bug in the plugin rather than at
+    the setting they typed.
+    """
+    if seconds < SECONDS_PER_MINUTE:
+        whole = int(seconds)
+        return f"{whole} second" if whole == 1 else f"{whole} seconds"
+    minutes = int(seconds // SECONDS_PER_MINUTE)
+    return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
 
 
 def _too_late(moment: Moment) -> Decision | None:
@@ -112,8 +124,8 @@ def _too_late(moment: Moment) -> Decision | None:
     return Decision(
         Action.CANCEL,
         Refusal.MISSED,
-        f"its time passed {_in_minutes(lateness)} minutes ago, beyond the "
-        f"{_in_minutes(moment.tolerance_seconds)} minute tolerance",
+        f"its time passed {_said_plainly(lateness)} ago, beyond a tolerance of "
+        f"{_said_plainly(moment.tolerance_seconds)}",
     )
 
 
@@ -355,7 +367,7 @@ def _confirm(job: Job, seen: PrinterAsSeen, now: float) -> Job:
         Action.CANCEL,
         Refusal.START_DID_NOT_TAKE,
         f"the printer accepted the start and then did not run it within "
-        f"{_in_minutes(START_CONFIRMATION_SECONDS) or 1} minute",
+        f"{_said_plainly(START_CONFIRMATION_SECONDS)}",
     ))
 
 
