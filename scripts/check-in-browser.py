@@ -298,7 +298,12 @@ def check_cancelling(page: Page) -> None:
     page.wait_for_selector("#settled .job", timeout=PATIENCE_MILLISECONDS)
     check("it leaves the pending list", "Nothing scheduled" in text_of(page, "#pending"), True)
     check("it says it did not run", "Did not run" in text_of(page, "#settled"), True)
-    check("and why", "you cancelled it" in text_of(page, "#settled"), True)
+    check(
+        "and does not claim to be waiting on you, having just been answered",
+        "Waiting for your confirmation" in text_of(page, "#settled"),
+        False,
+    )
+    check("and why", "You cancelled it" in text_of(page, "#settled"), True)
 
 
 def check_clearing_the_settled_list(page: Page) -> None:

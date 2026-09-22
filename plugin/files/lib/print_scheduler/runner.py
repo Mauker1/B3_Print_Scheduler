@@ -124,7 +124,7 @@ def _too_late(moment: Moment) -> Decision | None:
     return Decision(
         Action.CANCEL,
         Refusal.MISSED,
-        f"its time passed {_said_plainly(lateness)} ago, beyond a tolerance of "
+        f"Its time passed {_said_plainly(lateness)} ago, beyond a tolerance of "
         f"{_said_plainly(moment.tolerance_seconds)}",
     )
 
@@ -142,7 +142,7 @@ def _printer_unreachable(moment: Moment) -> Decision | None:
     return Decision(
         Action.WAIT,
         Refusal.PRINTER_UNREACHABLE,
-        f"the printer did not answer: {moment.printer.klipper_message}",
+        f"The printer did not answer: {moment.printer.klipper_message}",
     )
 
 
@@ -152,7 +152,7 @@ def _klipper_is_still_starting(moment: Moment) -> Decision | None:
     return Decision(
         Action.WAIT,
         Refusal.KLIPPER_NOT_READY,
-        f"klipper reports {moment.printer.klipper_state}: {moment.printer.klipper_message}",
+        f"Klipper reports {moment.printer.klipper_state}: {moment.printer.klipper_message}",
     )
 
 
@@ -181,7 +181,7 @@ def _a_print_is_running(moment: Moment) -> Decision | None:
     # docstring above and in the README, not in the line somebody reads at six in the morning
     # wanting to know why their print did not run.
     was = BUSY_WITH.get(moment.printer.print_state, "busy with")
-    return Decision(Action.CANCEL, Refusal.PRINTER_BUSY, f"the printer was {was} {running}")
+    return Decision(Action.CANCEL, Refusal.PRINTER_BUSY, f"The printer was {was} {running}")
 
 
 def _the_bed_was_not_cleared(moment: Moment) -> Decision | None:
@@ -208,12 +208,12 @@ def _why_the_bed_is_suspect(moment: Moment) -> str:
     state = moment.printer.print_state
     if moment.last_print_ended_at is None or moment.job.created_at <= 0:
         return (
-            f"the printer reports the previous print as {state} and gives no usable record of "
+            f"The printer reports the previous print as {state} and gives no usable record of "
             "when it ended, so there is no telling whether that happened after you promised "
             "the bed would be clear. Dismiss the last print on the printer, then reschedule."
         )
     return (
-        f"a print was {state} after you scheduled this, so there may be something on the bed "
+        f"A print was {state} after you scheduled this, so there may be something on the bed "
         "that you could not have known about when you promised it would be clear."
     )
 
@@ -230,7 +230,7 @@ def _other_gcode_is_running(moment: Moment) -> Decision | None:
     return Decision(
         Action.WAIT,
         Refusal.PRINTER_BUSY,
-        "something other than a print is running on the printer",
+        "Something other than a print is running on the printer",
     )
 
 
@@ -356,17 +356,17 @@ def _confirm(job: Job, seen: PrinterAsSeen, now: float) -> Job:
     """Decide whether a start we made actually took effect."""
     ours = find_our_print(job, seen.recent_prints)
     if ours is not None:
-        return _confirmed(job, now, ours.job_id, f"the printer recorded it as job {ours.job_id}")
+        return _confirmed(job, now, ours.job_id, f"The printer recorded it as job {ours.job_id}")
     if _the_printer_is_running_our_file(job, seen.snapshot):
-        return _confirmed(job, now, "", "the printer is running it, with no history entry yet")
+        return _confirmed(job, now, "", "The printer is running it, with no history entry yet")
     waited_for = now - (job.decided_at or now)
     if waited_for <= START_CONFIRMATION_SECONDS:
         return _waited(job, now, Decision(Action.WAIT, Refusal.START_DID_NOT_TAKE,
-                                          "the start has not shown up on the printer yet"))
+                                          "The start has not shown up on the printer yet"))
     return _cancelled(job, now, Decision(
         Action.CANCEL,
         Refusal.START_DID_NOT_TAKE,
-        f"the printer accepted the start and then did not run it within "
+        f"The printer accepted the start and then did not run it within "
         f"{_said_plainly(START_CONFIRMATION_SECONDS)}",
     ))
 
@@ -398,7 +398,7 @@ def _plan_the_toolheads(
     except OSError:
         # The file check runs before this rule, so a file that is simply gone is already
         # settled. Anything else unreadable leaves us unable to say what it needs.
-        return ToolPlan(problem=f"the printer could not describe {job.filename}")
+        return ToolPlan(problem=f"The printer could not describe {job.filename}")
     return plan_tools(tools_used(metadata), loaded)
 
 
@@ -474,11 +474,11 @@ def _started(moment: Moment, printer: Printer) -> Job:
 def _what_was_asked_for(moment: Moment) -> str:
     assignments = moment.tool_plan.assignments
     if not assignments:
-        return "the printer accepted the start"
+        return "The printer accepted the start"
     mapping = ", ".join(
         f"slot {one.slot} on T{one.toolhead} ({one.filament_type})" for one in assignments
     )
-    return f"the printer accepted the start, {mapping}"
+    return f"The printer accepted the start, {mapping}"
 
 
 def _confirmed(job: Job, now: float, printer_job_id: str, detail: str) -> Job:
@@ -491,7 +491,16 @@ def _confirmed(job: Job, now: float, printer_job_id: str, detail: str) -> Job:
 
 
 def cancel_by_hand(job: Job, now: float) -> Job:
-    """Cancel a pending job because the person asked, which is not a refusal by the printer."""
-    return _cancelled(
-        job, now, Decision(Action.CANCEL, Refusal.CANCELLED_BY_YOU, "you cancelled it")
+    """Cancel a pending job because the person asked, which is not a refusal by the printer.
+
+    The hold goes with it. A held job is a promise waiting on a person, and cancelling it *is*
+    that person answering, so a settled job carrying `held` would be a row claiming to wait for
+    a decision that has already been made. This is the only way a held job can settle: the tick
+    refuses to consider one at all.
+    """
+    return replace(
+        _cancelled(
+            job, now, Decision(Action.CANCEL, Refusal.CANCELLED_BY_YOU, "You cancelled it")
+        ),
+        held=False,
     )

@@ -231,7 +231,7 @@ def _why_there_are_not_enough(
         held = sum(1 for one in usable if _same_material(material, one.filament_type))
         if needed > held:
             return (
-                f"this file needs {needed} toolheads with {material} and the printer has "
+                f"This file needs {needed} toolheads with {material} and the printer has "
                 f"{held}. The printer reports {_describe_what_is_loaded(loaded)}."
             )
     return (

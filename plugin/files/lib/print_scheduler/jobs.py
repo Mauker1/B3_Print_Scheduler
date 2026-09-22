@@ -175,10 +175,10 @@ def reason_filename_cannot_start(filename: str, starts_by_gcode: bool = True) ->
     strict answer, so a caller that has not thought about it refuses more rather than less.
     """
     if not filename.strip():
-        return "the filename is empty"
+        return "The filename is empty"
     if not starts_by_gcode:
         return None
     for character, why in UNSTARTABLE_CHARACTERS.items():
         if character in filename:
-            return f"the name contains {character}, and {why}"
+            return f"The name contains {character}, and {why}"
     return None

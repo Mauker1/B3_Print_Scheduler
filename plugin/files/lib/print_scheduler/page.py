@@ -66,6 +66,11 @@ select, input[type=search] { width: 100%; padding: 0.45rem;
 /* The field asks for exactly its own width now that a button sits next to it, rather than
    stretching across a form it never filled meaningfully. */
 .whenpick { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+/* One affordance, not two. The native indicator opens the same picker the button does, and two
+   controls doing one thing in the same field reads as an accident. */
+.whenpick input[type=datetime-local]::-webkit-calendar-picker-indicator { display: none; }
+.whenpick button { display: inline-flex; align-items: center; gap: 0.4rem; }
+.whenpick button svg { width: 1rem; height: 1rem; fill: currentColor; }
 .whenpick input[type=datetime-local] { width: auto; flex: 0 0 auto; padding: 0.45rem;
   border: 1px solid var(--line); border-radius: 0.35rem; background: transparent;
   color: inherit; font: inherit; }
@@ -130,7 +135,9 @@ footer { font-size: 0.8rem; color: var(--quiet); }
   <label for="start-at">Start it at</label>
   <div class="whenpick">
     <input type="datetime-local" id="start-at">
-    <button class="link" type="button" id="pick-time">Pick a time</button>
+    <button type="button" id="pick-time">Pick a time<svg viewBox="0 0 24 24" aria-hidden="true"
+      ><path d="M7 2v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0
+      0-2-2h-2V2h-2v2H9V2H7zm12 7v10H5V9h14z"/></svg></button>
   </div>
   <p class="quiet" id="start-help"></p>
 </div>
@@ -489,7 +496,10 @@ function renderJob(job) {
     }
     body.appendChild(element("div", "facts", describeFinish(job, job.setup)));
   }
-  if (job.held) {
+  // Only a job that is still scheduled can be waiting on you. A settled row carrying the flag
+  // is either history from before it was cleared at cancellation, or a bug; either way saying
+  // "waiting for your confirmation" about a job that already ran is worse than saying nothing.
+  if (job.held && job.state === "scheduled") {
     // Short on purpose. The banner above the list has already said that nothing starts until
     // you confirm; this marker exists for a list long enough that the banner has scrolled away,
     // and saying it twice in three lines is how a warning stops being read.

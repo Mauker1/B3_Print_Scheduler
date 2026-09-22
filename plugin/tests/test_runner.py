@@ -484,7 +484,7 @@ def test_a_job_seconds_late_says_seconds_rather_than_zero_minutes() -> None:
     """
     settled = settle(a_job(), StandInPrinter(), now=SIX_IN_THE_MORNING + 7, tolerance=0.0)
     assert settled.refusal is Refusal.MISSED
-    assert settled.detail == "its time passed 7 seconds ago, beyond a tolerance of 0 seconds"
+    assert settled.detail == "Its time passed 7 seconds ago, beyond a tolerance of 0 seconds"
 
 
 def test_a_tolerance_of_zero_still_starts_a_job_that_is_not_late() -> None:
@@ -497,7 +497,7 @@ def test_minutes_are_still_minutes_once_there_is_a_minute_to_report() -> None:
     settled = settle(
         a_job(), StandInPrinter(), now=SIX_IN_THE_MORNING + 400, tolerance=FIVE_MINUTES
     )
-    assert settled.detail == "its time passed 6 minutes ago, beyond a tolerance of 5 minutes"
+    assert settled.detail == "Its time passed 6 minutes ago, beyond a tolerance of 5 minutes"
 
 
 def test_one_of_a_unit_is_singular() -> None:

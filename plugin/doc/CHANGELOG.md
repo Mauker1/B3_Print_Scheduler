@@ -5,6 +5,22 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.1.21
+
+More of the same review, plus two things it turned up.
+
+- **A cancelled job no longer says it is waiting for you.** A job held after a long silence and
+  then cancelled kept the hold, so a settled row read "Waiting for your confirmation." about a
+  decision you had already made. Cancelling a held job *is* the answer, so the flag goes with
+  it, and the page will not mark a row that is not still scheduled whatever is on disk.
+- **The date field has no icon of its own.** It and the *Pick a time* button opened the same
+  picker, and two controls doing one thing in one field read as an accident rather than a
+  choice. The button keeps a calendar on it, so nothing is lost but the duplication.
+- **Reasons now read as sentences.** "that time has already passed" is wrong at the start of a
+  line. Every reason is shown two ways, alone when scheduling is refused and after "Did not
+  run." on a settled row, and a capital is right in both. The exceptions are the ones that begin
+  with your own filename, which is not ours to re-case.
+
 ## 0.1.20
 
 From a review by another Bespok3d developer.

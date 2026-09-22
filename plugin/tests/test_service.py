@@ -670,3 +670,25 @@ def test_a_tolerance_of_zero_is_a_real_answer_and_a_negative_one_is_not(tmp_path
 
     (tmp_path / "absent.json").write_text(json.dumps({}))
     assert Settings(tmp_path / "absent.json").tolerance_seconds() == 5 * 60.0
+
+
+def test_cancelling_a_held_job_stops_it_waiting_on_anybody(tmp_path: Path) -> None:
+    """Seen on hardware: a settled row still saying "Waiting for your confirmation."
+
+    Cancelling a held job *is* the person answering the question the hold asked, so the flag
+    has to go with it. This is the only way a held job can settle at all, because the tick
+    refuses to consider one.
+    """
+    service = a_service(tmp_path)
+    job = service.add(a_request(), LAST_NIGHT)
+
+    back = LAST_NIGHT + A_LONG_SILENCE_SECONDS + 60
+    after = a_service(tmp_path, heartbeat=a_heartbeat_last_seen(tmp_path, LAST_NIGHT))
+    after.tick(back)
+    assert after.jobs()[0].held
+
+    after.cancel(job.job_id, back)
+    settled = after.jobs()[0]
+    assert settled.state is JobState.CANCELLED
+    assert settled.held is False
+    assert settled.detail == "You cancelled it"
