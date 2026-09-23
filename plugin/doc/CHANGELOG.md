@@ -5,6 +5,16 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.2.1
+
+Two things the first people to read it in Portuguese asked for.
+
+- **The printer's line says what it is.** "Idle and ready. A job may start up to 2 minutes late."
+  now begins with "Printer status:", because a sentence at the top of a page with nothing
+  introducing it leaves you working out what it is about.
+- **The language picker moved to the foot of the page**, beside the version. It is a control
+  somebody uses once, and beside the title it was competing with the thing they came to do.
+
 ## 0.2.0
 
 The page speaks Portuguese, and says which language it is written in.

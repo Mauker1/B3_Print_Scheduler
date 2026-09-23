@@ -98,7 +98,7 @@
   "page.cancelled-not-dismissed": "A cancelled print has not been dismissed, so the bed is presumed occupied.",
   "page.klipper-reports": "Klipper reports {state}",
   "page.idle-and-ready": "Idle and ready.",
-  "page.printer-line": "{printer} A job may start up to {tolerance} late.",
+  "page.printer-line": "Printer status: {printer} A job may start up to {tolerance} late.",
   "page.clocks-differ": "This device's clock and the printer's differ by about {apart}. Times you pick are sent as an exact instant, so scheduling still works, but one of the two clocks is wrong.",
   "page.slot": "slot {slot} {material}",
   "page.slot-with-grams": "slot {slot} {material} {grams} g",

@@ -42,8 +42,6 @@ body {
   margin: 0 auto; max-width: 46rem; padding: 1.25rem 1rem 3rem; line-height: 1.5;
 }
 h1 { font-size: 1.35rem; margin: 0 0 0.15rem; }
-.titles { display: flex; align-items: baseline; justify-content: space-between;
-          flex-wrap: wrap; gap: 0.5rem 1rem; }
 .tagline { margin: 0 0 0.3rem; color: var(--quiet); }
 h2 { font-size: 1rem; margin: 0 0 0.6rem; }
 section { border: 1px solid var(--line); border-radius: 0.6rem; padding: 1rem;
@@ -115,17 +113,13 @@ button.danger { border-color: #c0392b; color: #c0392b; }
 .tool { display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; }
 .swatch { width: 0.95rem; height: 0.95rem; border-radius: 50%; border: 1px solid var(--line); }
 .facts { font-size: 0.85rem; color: var(--quiet); }
-footer { font-size: 0.8rem; color: var(--quiet); }
+footer { font-size: 0.8rem; color: var(--quiet); display: flex; align-items: baseline;
+         justify-content: space-between; flex-wrap: wrap; gap: 0.5rem 1rem; }
 </style>
 </head>
 <body>
-<div class="titles">
-  <div>
-    <h1>Print Scheduler</h1>
-    <p class="tagline" data-i18n="page.tagline">Start a print at a time you choose.</p>
-  </div>
-  <div id="language-pick"></div>
-</div>
+<h1>Print Scheduler</h1>
+<p class="tagline" data-i18n="page.tagline">Start a print at a time you choose.</p>
 <p class="quiet" id="printer-line" data-i18n="page.asking-the-printer">Asking the printer...</p>
 <div id="clock-warning"></div>
 <div id="settings-warning"></div>
@@ -190,7 +184,10 @@ footer { font-size: 0.8rem; color: var(--quiet); }
 <div id="settled"><p class="quiet" data-i18n="page.loading">Loading...</p></div>
 </section>
 
-<footer>print-scheduler __VERSION__</footer>
+<footer>
+  <span>print-scheduler __VERSION__</span>
+  <div id="language-pick"></div>
+</footer>
 
 <script>
 // ---- what the page says ------------------------------------------------------------------------

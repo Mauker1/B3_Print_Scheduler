@@ -98,7 +98,7 @@
   "page.cancelled-not-dismissed": "Uma impressão cancelada ainda não foi dispensada, então a mesa é considerada ocupada.",
   "page.klipper-reports": "O Klipper informa {state}",
   "page.idle-and-ready": "Ociosa e pronta.",
-  "page.printer-line": "{printer} Uma tarefa pode começar com até {tolerance} de atraso.",
+  "page.printer-line": "Status da impressora: {printer} Uma tarefa pode começar com até {tolerance} de atraso.",
   "page.clocks-differ": "O relógio deste dispositivo e o da impressora diferem em cerca de {apart}. Os horários que você escolhe são enviados como um instante exato, então o agendamento continua funcionando, mas um dos dois relógios está errado.",
   "page.slot": "slot {slot} {material}",
   "page.slot-with-grams": "slot {slot} {material} {grams} g",
