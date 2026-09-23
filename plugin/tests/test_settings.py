@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 
 import pytest
-from print_scheduler import Settings
+from print_scheduler import ENGLISH, Settings, say
 
 
 def written(tmp_path: Path, **values: object) -> Settings:
@@ -105,3 +105,36 @@ def test_fixing_the_value_clears_the_page_warning(tmp_path: Path) -> None:
     path.write_text(json.dumps({"START_TOLERANCE_MINUTES": 3}), encoding="utf-8")
     assert settings.tolerance_seconds() == 3 * 60
     assert settings.ignored() == ()
+
+
+def test_no_language_at_all_is_english(tmp_path: Path) -> None:
+    """Absent is not invalid: a setting nobody has touched says nothing anywhere."""
+    settings = written(tmp_path)
+    assert settings.language() == ENGLISH
+    assert settings.ignored() == ()
+
+
+def test_a_language_we_ship_is_used(tmp_path: Path) -> None:
+    assert written(tmp_path, LANGUAGE="pt-BR").language() == "pt-BR"
+
+
+def test_a_language_nobody_ships_is_english_and_says_so(tmp_path: Path) -> None:
+    """The same shape of mistake as a negative tolerance, and the same answer."""
+    settings = written(tmp_path, LANGUAGE="kl")
+    assert settings.language() == ENGLISH
+    assert [one.setting for one in settings.ignored()] == ["LANGUAGE"]
+
+
+def test_a_language_that_is_a_path_is_refused(tmp_path: Path) -> None:
+    settings = written(tmp_path, LANGUAGE="../../../etc/passwd")
+    assert settings.language() == ENGLISH
+    assert settings.ignored() != ()
+
+
+def test_the_fallback_names_itself_in_the_reader_s_language(tmp_path: Path) -> None:
+    """"Using 5 minutes" in the middle of a Portuguese sentence is a half translation."""
+    settings = written(tmp_path, START_TOLERANCE_MINUTES=-1)
+    settings.tolerance_seconds()
+    said = settings.ignored()[0].said()
+    assert "5 minutes" in say(ENGLISH, said.key, said.values)
+    assert "5 minutos" in say("pt-BR", said.key, said.values)

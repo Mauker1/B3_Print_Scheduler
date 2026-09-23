@@ -111,10 +111,6 @@ def test_every_catalogue_is_json_of_strings(tag: str) -> None:
         assert all(isinstance(form, str) for form in forms_of(entry).values()), key
 
 
-def test_a_key_nobody_translated_falls_back_to_english() -> None:
-    assert say("pt-BR", Message.CANCELLED_BY_YOU) == say(ENGLISH, Message.CANCELLED_BY_YOU)
-
-
 def test_a_language_nobody_ships_falls_back_to_english() -> None:
     assert say("xx", Message.CANCELLED_BY_YOU) == say(ENGLISH, Message.CANCELLED_BY_YOU)
 
@@ -199,6 +195,14 @@ def a_catalogue_of_our_own(
         (tmp_path / f"{tag}.json").write_text(text, encoding="utf-8")
 
     return write
+
+
+def test_a_key_nobody_translated_falls_back_to_english(
+    a_catalogue_of_our_own: Callable[[str, str], None],
+) -> None:
+    """A half finished translation shows English, never a gap and never an error."""
+    a_catalogue_of_our_own("zz", json.dumps({"detail.file-gone": "nada aqui"}))
+    assert say("zz", Message.CANCELLED_BY_YOU) == "You cancelled it"
 
 
 def test_a_catalogue_that_is_not_json_falls_back_rather_than_raising(

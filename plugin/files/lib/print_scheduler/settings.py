@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from print_scheduler.messages import Message, Said
+from print_scheduler.messages import ENGLISH, Message, Said, a_duration, known_tags
 
 # The name Bespok3d's own plugins log under. Ours is a service in its own process rather than
 # code inside Klipper, so nothing configures logging for us and the entry point attaches the
@@ -34,6 +34,7 @@ _log = logging.getLogger("bespok3d.print_scheduler")
 
 TOLERANCE_VARIABLE = "START_TOLERANCE_MINUTES"
 SETTLED_KEPT_VARIABLE = "SETTLED_JOBS_KEPT"
+LANGUAGE_VARIABLE = "LANGUAGE"
 
 DEFAULT_TOLERANCE_MINUTES = 5.0
 DEFAULT_SETTLED_KEPT = 25
@@ -46,7 +47,10 @@ class Ignored:
 
     setting: str
     found: str
-    using: str
+    # What is being used instead, which may be a message rather than a string: "5 minutes" is
+    # a phrase in English and a different one in Portuguese, and a fallback that names itself
+    # in the wrong language is exactly the kind of half translation this project is avoiding.
+    using: Any
 
     def said(self) -> Said:
         return Said(
@@ -85,14 +89,36 @@ class Settings:
         nearly every job, which is documented rather than prevented. A negative is not an
         answer to anything.
         """
-        minutes = self._number(TOLERANCE_VARIABLE, DEFAULT_TOLERANCE_MINUTES, "5 minutes")
+        minutes = self._number(
+            TOLERANCE_VARIABLE,
+            DEFAULT_TOLERANCE_MINUTES,
+            a_duration(DEFAULT_TOLERANCE_MINUTES * SECONDS_PER_MINUTE),
+        )
         return minutes * SECONDS_PER_MINUTE
 
     def settled_kept(self) -> int:
         """How many settled jobs to show. A display preference, and only that."""
         return int(self._number(SETTLED_KEPT_VARIABLE, float(DEFAULT_SETTLED_KEPT), "25"))
 
-    def _number(self, name: str, default: float, said_as: str) -> float:
+    def language(self) -> str:
+        """Which language the page starts in, for every reader who has not chosen their own.
+
+        A tag nobody ships is the same shape of mistake as a negative tolerance: it is there,
+        it cannot be used, and saying so beats quietly serving English to somebody who asked
+        for something else. The page decides what to do with it from there.
+        """
+        raw = self._raw(LANGUAGE_VARIABLE)
+        if raw is None:
+            self._ignored.pop(LANGUAGE_VARIABLE, None)
+            return ENGLISH
+        tag = str(raw).strip()
+        if tag in known_tags():
+            self._ignored.pop(LANGUAGE_VARIABLE, None)
+            return tag
+        self._complain(LANGUAGE_VARIABLE, repr(raw), ENGLISH)
+        return ENGLISH
+
+    def _number(self, name: str, default: float, said_as: Any) -> float:
         raw = self._raw(name)
         if raw is None:
             self._ignored.pop(name, None)
@@ -114,11 +140,19 @@ class Settings:
             return None
         return values.get(name) if isinstance(values, dict) else None
 
-    def _fall_back(self, name: str, found: str, said_as: str, default: float) -> float:
+    def _fall_back(self, name: str, found: str, said_as: Any, default: float) -> float:
+        self._complain(name, found, said_as)
+        return default
+
+    def _complain(self, name: str, found: str, said_as: Any) -> None:
+        """Say it on the page for as long as it is true, and in the log once, in English."""
         self._ignored[name] = Ignored(setting=name, found=found, using=said_as)
         if name not in self._said:
             self._said.add(name)
+            in_english = said_as.in_english() if isinstance(said_as, Said) else said_as
             _log.warning(
-                "%s is set to %s, which cannot be used; falling back to %s", name, found, said_as
+                "%s is set to %s, which cannot be used; falling back to %s",
+                name,
+                found,
+                in_english,
             )
-        return default

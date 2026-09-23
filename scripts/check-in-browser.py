@@ -39,6 +39,8 @@ import json  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
+from collections.abc import Iterator  # noqa: E402
+from contextlib import contextmanager  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any  # noqa: E402
 
@@ -459,15 +461,33 @@ def check_a_file_whose_material_is_not_loaded(page: Page, printer: StandInPrinte
     check("and scheduling is refused", page.is_disabled("#save"), True)
 
 
+# What a check has deliberately provoked, held only for as long as that check runs. A refusal
+# the page asked for comes back as an HTTP 400, which the browser logs as a console error and
+# which is not a defect. Naming it for one check keeps every other 400 a failure.
+tolerated_complaints: list[str] = []
+
+
+@contextmanager
+def a_refusal_we_asked_for(seen_as: str) -> Iterator[None]:
+    tolerated_complaints.append(seen_as)
+    try:
+        yield
+    finally:
+        tolerated_complaints.remove(seen_as)
+
+
+def note_a_complaint(message: Any) -> None:
+    if message.type != "error":
+        return
+    if any(tolerated in message.text for tolerated in tolerated_complaints):
+        return
+    complaints.append(f"console error: {message.text}")
+
+
 def watch_for_complaints(page: Page) -> None:
     """A console error is a failure here, not noise."""
     page.on("pageerror", lambda problem: complaints.append(f"page error: {problem}"))
-    page.on(
-        "console",
-        lambda message: complaints.append(f"console error: {message.text}")
-        if message.type == "error"
-        else None,
-    )
+    page.on("console", note_a_complaint)
 
 
 def run_every_check(page: Page, printer: StandInPrinter, base_url: str) -> None:
@@ -578,6 +598,87 @@ def check_what_a_long_silence_looks_like(scratch: Path, printer: StandInPrinter)
         server.shutdown()
 
 
+# A phone held upright, which is where the longest strings have the least room. Portuguese runs
+# 15 to 30 percent longer than English, so the point of this size is not the words but whether
+# anything spills off the side once they are longer.
+A_PHONE = {"width": 390, "height": 844}
+
+
+def check_the_page_in_another_language(scratch: Path, printer: StandInPrinter) -> None:
+    """The whole page in Portuguese, and then one reader choosing English for themselves."""
+    print("\nThe page in another language")
+    (scratch / "user_vars.json").write_text(json.dumps({"LANGUAGE": "pt-BR"}), encoding="utf-8")
+    base_url, server, _service = serve(scratch, printer)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page(viewport=A_PHONE)
+            watch_for_complaints(page)
+            page.goto(base_url)
+            wait_for_the_file_list(page)
+            check_the_page_speaks_portuguese(page)
+            check_a_refusal_arrives_translated(page)
+            check_one_reader_can_choose_for_themselves(page, base_url)
+            check_nothing_spills_off_the_side(page)
+            browser.close()
+    finally:
+        server.shutdown()
+
+
+def check_the_page_speaks_portuguese(page: Page) -> None:
+    # The attribute a screen reader pronounces the whole page by. It was hardcoded to `en`.
+    check("the document declares its language", page.get_attribute("html", "lang"), "pt-BR")
+    check("the product keeps its own name", text_of(page, "h1"), "Print Scheduler")
+    check("the tagline is translated", "Comece uma impress" in text_of(page, ".tagline"), True)
+    check("the form heading is", text_of(page, "#form-heading"), "Agendar uma impressão")
+    check("so is the button", text_of(page, "#save"), "Agendar")
+    check("and the file list's own facts",
+          "fatiado" in text_of(page, "#file-list"), True)
+    check("the printer line is a whole sentence, not a translated fragment",
+          "pode começar com até" in text_of(page, "#printer-line"), True)
+    check("with its duration in Portuguese too",
+          "minutos de atraso" in text_of(page, "#printer-line"), True)
+
+
+def check_a_refusal_arrives_translated(page: Page) -> None:
+    """The service refuses in keys, and the browser says it in the reader's language."""
+    pick_the_file(page, BENCHY)
+    page.fill("#start-at", "2020-01-01T06:00")
+    page.check("#bed-clear")
+    page.wait_for_selector("#save:not([disabled])", timeout=PATIENCE_MILLISECONDS)
+    # The click is inside, not before it: the console error arrives with the response.
+    with a_refusal_we_asked_for("400 (Bad Request)"):
+        page.click("#save")
+        page.wait_for_selector("#form-problem .stop", timeout=PATIENCE_MILLISECONDS)
+        check("a refusal from the service is in Portuguese",
+              "Esse horário já passou" in text_of(page, "#form-problem"), True)
+
+
+def check_one_reader_can_choose_for_themselves(page: Page, base_url: str) -> None:
+    check("the picker appears once there is a choice", page.is_visible("#language"), True)
+    check("and offers to keep following the printer",
+          "Seguir a impressora" in text_of(page, "#language"), True)
+    page.select_option("#language", "en")
+    check("choosing English redraws the page", text_of(page, "#form-heading"), "Schedule a print")
+    check("and says so to a screen reader", page.get_attribute("html", "lang"), "en")
+    page.reload()
+    wait_for_the_file_list(page)
+    check("the choice survives a reload", text_of(page, "#form-heading"), "Schedule a print")
+    check("while the printer still says Portuguese",
+          "Follow the printer (Português (Brasil))" in text_of(page, "#language"), True)
+    page.select_option("#language", "")
+    check("and following the printer again gives it back",
+          text_of(page, "#form-heading"), "Agendar uma impressão")
+
+
+def check_nothing_spills_off_the_side(page: Page) -> None:
+    """The longer language, on the narrowest screen, with nothing to scroll sideways."""
+    overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
+    )
+    check("nothing overflows a phone sized page", overflow <= 0, True)
+
+
 def serve(
     scratch: Path, printer: StandInPrinter, heartbeat: Heartbeat | None = None
 ) -> tuple[str, Any, ScheduleService]:
@@ -605,12 +706,14 @@ def report() -> int:
     return 0
 
 
-def main() -> int:
-    # The real entry point configures logging; without it INFO falls below stdlib's lastResort
-    # and vanishes, which is the bug this plugin was just fixed not to have. Calling it here
-    # means the harness exercises the wiring rather than quietly proving it is missing.
-    start_logging()
-    printer = StandInPrinter(
+def a_printer_with_a_white_pla_file() -> StandInPrinter:
+    """A fresh stand-in. Fresh matters: the checks mutate what it describes as they go.
+
+    Reusing the one the main pass finishes with means inheriting whatever the last check left
+    it saying, which is how a later scenario ends up unable to schedule anything for reasons
+    that have nothing to do with it.
+    """
+    return StandInPrinter(
         describes={**WHITE_PLA_METADATA, "thumbnails": THUMBNAILS_THE_SLICER_WROTE},
         remembers=PRINTS_THAT_FINISHED,
         # The Chinese named file is the newer one and the Benchy sorts first by name, so
@@ -619,6 +722,14 @@ def main() -> int:
         modified_at={BENCHY: 1789830000.0, CHINESE_NAME: 1789920000.0},
         thumbnail_bytes=ONE_PIXEL_PNG,
     )
+
+
+def main() -> int:
+    # The real entry point configures logging; without it INFO falls below stdlib's lastResort
+    # and vanishes, which is the bug this plugin was just fixed not to have. Calling it here
+    # means the harness exercises the wiring rather than quietly proving it is missing.
+    start_logging()
+    printer = a_printer_with_a_white_pla_file()
     with tempfile.TemporaryDirectory() as scratch:
         base_url, server, service = serve(Path(scratch), printer)
         with sync_playwright() as playwright:
@@ -631,6 +742,8 @@ def main() -> int:
         check_what_a_long_silence_looks_like(Path(scratch), printer)
     with tempfile.TemporaryDirectory() as scratch:
         check_a_setting_the_plugin_cannot_use(Path(scratch), printer)
+    with tempfile.TemporaryDirectory() as scratch:
+        check_the_page_in_another_language(Path(scratch), a_printer_with_a_white_pla_file())
     return report()
 
 

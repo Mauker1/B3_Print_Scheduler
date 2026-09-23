@@ -204,7 +204,10 @@ def _preference(value: Any) -> bool | None:
 
 
 def serve_schedule_page(handler: SchedulerRequestHandler) -> None:
-    body = render_schedule_page(SERVICE_VERSION).encode("utf-8")
+    # The setting is read per request, like the tolerance, so changing the language in the app
+    # takes effect on the next reload rather than on the next restart.
+    language = handler.schedule().settings().language()
+    body = render_schedule_page(SERVICE_VERSION, language).encode("utf-8")
     handler.respond(HTTPStatus.OK, body, "text/html; charset=utf-8")
 
 

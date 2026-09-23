@@ -30,6 +30,11 @@
         "name": "SETTLED_JOBS_KEPT",
         "description": "How many finished and cancelled jobs to show in the list. Older ones are dropped from the list automatically. Nothing scheduled is ever dropped.",
         "required": false
+      },
+      {
+        "name": "LANGUAGE",
+        "description": "Which language this plugin's page starts in for everybody who has not chosen their own.",
+        "required": false
       }
     ]
   },
@@ -51,6 +56,19 @@
       "placeholder": "25",
       "default": 25,
       "hint": "The list of settled jobs is trimmed to this many, newest first, so it does not grow forever. Jobs that have not run yet are never dropped. This only changes how many rows you see: the scheduler keeps enough history of its own to tell a levelled print's setup time from an unlevelled one, whatever this is set to.",
+      "required": false,
+      "userEditable": true
+    },
+    {
+      "key": "LANGUAGE",
+      "label": "Language",
+      "type": "select",
+      "options": [
+        "en",
+        "pt-BR"
+      ],
+      "default": "en",
+      "hint": "The language this plugin's own page starts in: en is English, pt-BR is Brazilian Portuguese. Anyone reading the page can choose a different one for their own browser without changing this. The printer's own words pass through untranslated, and the log is always English.",
       "required": false,
       "userEditable": true
     }
