@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from print_scheduler.messages import Message, Said
+
 # The name Bespok3d's own plugins log under. Ours is a service in its own process rather than
 # code inside Klipper, so nothing configures logging for us and the entry point attaches the
 # handler; see `cli.py`. Named to match the convention so that the day the platform offers
@@ -46,8 +48,15 @@ class Ignored:
     found: str
     using: str
 
+    def said(self) -> Said:
+        return Said(
+            Message.SETTING_IGNORED,
+            {"setting": self.setting, "found": self.found, "using": self.using},
+        )
+
     def sentence(self) -> str:
-        return f"{self.setting} is set to {self.found}, which cannot be used. Using {self.using}."
+        """The English sentence, which is what the log keeps and what the page falls back to."""
+        return self.said().in_english()
 
 
 class Settings:

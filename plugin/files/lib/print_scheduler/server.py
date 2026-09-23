@@ -65,6 +65,21 @@ JSON_CONTENT_TYPE = "application/json"
 MAXIMUM_BODY_BYTES = 64 * 1024
 
 
+def _why_it_was_refused(refused: Exception) -> dict[str, Any]:
+    """The refusal as JSON: English, plus the key and values when there are any.
+
+    A `BadRequestError` carries no key on purpose. It means the request itself was malformed,
+    which is a programming mistake in whatever sent it rather than something a person did, and
+    a caller that cannot form a request is not helped by reading about it in Portuguese.
+    """
+    payload: dict[str, Any] = {"error": str(refused)}
+    said = getattr(refused, "said", None)
+    if said is not None:
+        payload["error_key"] = said.key.value
+        payload["error_values"] = said.wire_values()
+    return payload
+
+
 class BadRequestError(Exception):
     """The request itself is wrong, as opposed to the schedule refusing what it asked for."""
 
@@ -119,7 +134,7 @@ class SchedulerRequestHandler(BaseHTTPRequestHandler):
         try:
             route(self)
         except (BadRequestError, ScheduleRejectedError) as refused:
-            self.respond_json(HTTPStatus.BAD_REQUEST, {"error": str(refused)})
+            self.respond_json(HTTPStatus.BAD_REQUEST, _why_it_was_refused(refused))
         except OSError as unreachable:
             self.respond_json(HTTPStatus.BAD_GATEWAY, {"error": str(unreachable)})
 

@@ -9,7 +9,13 @@ the moment it was supposed to run.
 
 from __future__ import annotations
 
-from print_scheduler import Job, job_from_dict, new_job_id, reason_filename_cannot_start
+from print_scheduler import (
+    Job,
+    Message,
+    job_from_dict,
+    new_job_id,
+    reason_filename_cannot_start,
+)
 
 BENCHY = "3DBenchy_ASA_HF_48m40s.gcode"
 
@@ -30,7 +36,8 @@ def test_a_chinese_name_is_startable() -> None:
 def test_a_hash_is_refused_because_the_parser_would_truncate_the_name() -> None:
     reason = reason_filename_cannot_start("plate #2.gcode")
     assert reason is not None
-    assert "comment" in reason
+    assert reason.key is Message.FILENAME_HAS_HASH
+    assert "comment" in reason.in_english()
 
 
 def test_a_double_quote_is_refused_because_it_would_end_the_parameter() -> None:

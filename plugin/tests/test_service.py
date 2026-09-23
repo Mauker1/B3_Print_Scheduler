@@ -137,7 +137,7 @@ def test_a_material_no_toolhead_holds_is_refused_while_you_are_still_looking(
 ) -> None:
     only_asa = (LoadedFilament(index=0, filament_type="ASA", colour="000000FF", present=True),)
     printer = StandInPrinter(describes=dict(WHITE_PLA_METADATA), loads=only_asa)
-    with pytest.raises(ScheduleRejectedError, match="no free toolhead"):
+    with pytest.raises(ScheduleRejectedError, match="No free toolhead"):
         a_service(tmp_path, printer).add(a_request(), LAST_NIGHT)
 
 

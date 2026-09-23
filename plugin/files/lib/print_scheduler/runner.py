@@ -25,6 +25,7 @@ from enum import Enum
 from print_scheduler.gcode_files import tools_used
 from print_scheduler.history import find_our_print, last_print_ended_at
 from print_scheduler.jobs import Attempt, Job, JobState, Refusal, reason_filename_cannot_start
+from print_scheduler.messages import Message, Said, a_duration
 from print_scheduler.printer import (
     KLIPPER_READY,
     KLIPPER_STARTING_STATES,
@@ -58,11 +59,20 @@ class Action(str, Enum):
 
 @dataclass(frozen=True)
 class Decision:
-    """What to do, and the reason, which is recorded whether or not the job ends here."""
+    """What to do, and the reason, which is recorded whether or not the job ends here.
+
+    The reason is a key and its values rather than a sentence, so the row it settles can be
+    read in any language, today or after the wording changes. `detail` is the English
+    rendering, which is what the log keeps and what a reader falls back to.
+    """
 
     action: Action
     refusal: Refusal | None = None
-    detail: str = ""
+    said: Said | None = None
+
+    @property
+    def detail(self) -> str:
+        return "" if self.said is None else self.said.in_english()
 
 
 @dataclass(frozen=True)
@@ -97,24 +107,8 @@ Rule = Callable[[Moment], Decision | None]
 ANOTHER_JOB_STARTED = Decision(
     Action.CANCEL,
     Refusal.PRINTER_BUSY,
-    "another scheduled job started in the same tick",
+    Said(Message.ANOTHER_JOB_STARTED),
 )
-
-
-def _said_plainly(seconds: float) -> str:
-    """A duration in the largest unit that does not round it away.
-
-    Flooring to whole minutes was the whole of this, which reported anything under a minute as
-    "0 minutes" and produced "its time passed 0 minutes ago, beyond a tolerance of 0 minutes"
-    for a job cancelled seven seconds late. A reason that reads as nonsense is worse than no
-    reason at all, because it sends the reader looking for a bug in the plugin rather than at
-    the setting they typed.
-    """
-    if seconds < SECONDS_PER_MINUTE:
-        whole = int(seconds)
-        return f"{whole} second" if whole == 1 else f"{whole} seconds"
-    minutes = int(seconds // SECONDS_PER_MINUTE)
-    return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
 
 
 def _too_late(moment: Moment) -> Decision | None:
@@ -124,8 +118,13 @@ def _too_late(moment: Moment) -> Decision | None:
     return Decision(
         Action.CANCEL,
         Refusal.MISSED,
-        f"Its time passed {_said_plainly(lateness)} ago, beyond a tolerance of "
-        f"{_said_plainly(moment.tolerance_seconds)}",
+        Said(
+            Message.MISSED,
+            {
+                "lateness": a_duration(lateness),
+                "tolerance": a_duration(moment.tolerance_seconds),
+            },
+        ),
     )
 
 
@@ -142,7 +141,7 @@ def _printer_unreachable(moment: Moment) -> Decision | None:
     return Decision(
         Action.WAIT,
         Refusal.PRINTER_UNREACHABLE,
-        f"The printer did not answer: {moment.printer.klipper_message}",
+        Said(Message.PRINTER_DID_NOT_ANSWER, {"message": moment.printer.klipper_message}),
     )
 
 
@@ -152,7 +151,13 @@ def _klipper_is_still_starting(moment: Moment) -> Decision | None:
     return Decision(
         Action.WAIT,
         Refusal.KLIPPER_NOT_READY,
-        f"Klipper reports {moment.printer.klipper_state}: {moment.printer.klipper_message}",
+        Said(
+            Message.KLIPPER_STARTING,
+            {
+                "state": moment.printer.klipper_state,
+                "message": moment.printer.klipper_message,
+            },
+        ),
     )
 
 
@@ -164,24 +169,34 @@ def _klipper_is_not_ready(moment: Moment) -> Decision | None:
     return Decision(
         Action.CANCEL,
         Refusal.PRINTER_IN_ERROR,
-        f"klipper reports {moment.printer.klipper_state}: {moment.printer.klipper_message}",
+        Said(
+            Message.KLIPPER_NOT_READY,
+            {
+                "state": moment.printer.klipper_state,
+                "message": moment.printer.klipper_message,
+            },
+        ),
     )
 
 
-# Each running state, said the way a person would say it. Without this, one phrasing has to
-# cover both and "the printer was busy paused foo.gcode" is what that looks like.
-BUSY_WITH = {"printing": "printing", "paused": "paused on"}
+# Each running state gets its own whole sentence rather than a word slotted into a shared one.
+# One phrasing covering both reads as "the printer was busy paused foo.gcode" in English, and a
+# language that puts the verb elsewhere cannot be repaired by choosing a better word here.
+BUSY_WITH = {
+    "printing": Message.PRINTER_WAS_PRINTING,
+    "paused": Message.PRINTER_WAS_PAUSED,
+}
 
 
 def _a_print_is_running(moment: Moment) -> Decision | None:
     if moment.printer.print_state not in RUNNING_PRINT_STATES:
         return None
-    running = moment.printer.printing_filename or "another job"
+    running = moment.printer.printing_filename or Said(Message.ANOTHER_JOB)
     # Says what happened and stops. Why a busy printer is never waited for belongs in the
     # docstring above and in the README, not in the line somebody reads at six in the morning
     # wanting to know why their print did not run.
-    was = BUSY_WITH.get(moment.printer.print_state, "busy with")
-    return Decision(Action.CANCEL, Refusal.PRINTER_BUSY, f"The printer was {was} {running}")
+    was = BUSY_WITH.get(moment.printer.print_state, Message.PRINTER_WAS_BUSY)
+    return Decision(Action.CANCEL, Refusal.PRINTER_BUSY, Said(was, {"file": running}))
 
 
 def _the_bed_was_not_cleared(moment: Moment) -> Decision | None:
@@ -204,34 +219,27 @@ def _the_promise_already_covered_this(moment: Moment) -> bool:
     return ended is not None and moment.job.created_at > 0 and ended <= moment.job.created_at
 
 
-def _why_the_bed_is_suspect(moment: Moment) -> str:
+def _why_the_bed_is_suspect(moment: Moment) -> Said:
     state = moment.printer.print_state
     if moment.last_print_ended_at is None or moment.job.created_at <= 0:
-        return (
-            f"The printer reports the previous print as {state} and gives no usable record of "
-            "when it ended, so there is no telling whether that happened after you promised "
-            "the bed would be clear. Dismiss the last print on the printer, then reschedule."
-        )
-    return (
-        f"A print was {state} after you scheduled this, so there may be something on the bed "
-        "that you could not have known about when you promised it would be clear."
-    )
+        return Said(Message.BED_STATE_WITH_NO_RECORD, {"state": state})
+    return Said(Message.BED_PRINT_AFTER_THE_PROMISE, {"state": state})
 
 
 def _the_printer_is_in_error(moment: Moment) -> Decision | None:
     if moment.printer.print_state != PRINT_STATE_ERROR:
         return None
-    return Decision(Action.CANCEL, Refusal.PRINTER_IN_ERROR, moment.printer.klipper_message)
+    return Decision(
+        Action.CANCEL,
+        Refusal.PRINTER_IN_ERROR,
+        Said(Message.THE_PRINTER_SAID, {"message": moment.printer.klipper_message}),
+    )
 
 
 def _other_gcode_is_running(moment: Moment) -> Decision | None:
     if not moment.printer.other_gcode_running:
         return None
-    return Decision(
-        Action.WAIT,
-        Refusal.PRINTER_BUSY,
-        "Something other than a print is running on the printer",
-    )
+    return Decision(Action.WAIT, Refusal.PRINTER_BUSY, Said(Message.OTHER_GCODE_RUNNING))
 
 
 def _no_toolhead_for_the_material(moment: Moment) -> Decision | None:
@@ -248,7 +256,7 @@ def _the_file_is_gone(moment: Moment) -> Decision | None:
     return Decision(
         Action.CANCEL,
         Refusal.FILE_GONE,
-        f"{moment.job.filename} is no longer on the printer",
+        Said(Message.FILE_GONE, {"filename": moment.job.filename}),
     )
 
 
@@ -356,18 +364,25 @@ def _confirm(job: Job, seen: PrinterAsSeen, now: float) -> Job:
     """Decide whether a start we made actually took effect."""
     ours = find_our_print(job, seen.recent_prints)
     if ours is not None:
-        return _confirmed(job, now, ours.job_id, f"The printer recorded it as job {ours.job_id}")
+        return _confirmed(
+            job,
+            now,
+            ours.job_id,
+            Said(Message.RECORDED_AS_JOB, {"printer_job_id": ours.job_id}),
+        )
     if _the_printer_is_running_our_file(job, seen.snapshot):
-        return _confirmed(job, now, "", "The printer is running it, with no history entry yet")
+        return _confirmed(job, now, "", Said(Message.RUNNING_WITH_NO_HISTORY))
     waited_for = now - (job.decided_at or now)
     if waited_for <= START_CONFIRMATION_SECONDS:
         return _waited(job, now, Decision(Action.WAIT, Refusal.START_DID_NOT_TAKE,
-                                          "The start has not shown up on the printer yet"))
+                                          Said(Message.START_NOT_SEEN_YET)))
     return _cancelled(job, now, Decision(
         Action.CANCEL,
         Refusal.START_DID_NOT_TAKE,
-        f"The printer accepted the start and then did not run it within "
-        f"{_said_plainly(START_CONFIRMATION_SECONDS)}",
+        Said(
+            Message.START_DID_NOT_TAKE,
+            {"window": a_duration(START_CONFIRMATION_SECONDS)},
+        ),
     ))
 
 
@@ -398,7 +413,9 @@ def _plan_the_toolheads(
     except OSError:
         # The file check runs before this rule, so a file that is simply gone is already
         # settled. Anything else unreadable leaves us unable to say what it needs.
-        return ToolPlan(problem=f"The printer could not describe {job.filename}")
+        return ToolPlan(
+            problem=Said(Message.COULD_NOT_DESCRIBE_FILE, {"filename": job.filename})
+        )
     return plan_tools(tools_used(metadata), loaded)
 
 
@@ -438,11 +455,14 @@ def _waited(job: Job, now: float, decision: Decision) -> Job:
 
 
 def _cancelled(job: Job, now: float, decision: Decision) -> Job:
+    said = decision.said
     return replace(
         job,
         state=JobState.CANCELLED,
         refusal=decision.refusal,
         detail=decision.detail,
+        detail_key="" if said is None else said.key.value,
+        detail_values={} if said is None else said.wire_values(),
         decided_at=now,
         attempts=job.attempts + (Attempt(now, decision.detail),),
     )
@@ -459,7 +479,13 @@ def _started(moment: Moment, printer: Printer) -> Job:
         )
     except StartRefusedError as refused:
         return _cancelled(
-            job, now, Decision(Action.CANCEL, Refusal.START_REFUSED, str(refused))
+            job,
+            now,
+            Decision(
+                Action.CANCEL,
+                Refusal.START_REFUSED,
+                Said(Message.THE_PRINTER_SAID, {"message": str(refused)}),
+            ),
         )
     # STARTING, not STARTED: the printer said yes, and whether it meant it is the next
     # tick's question.
@@ -467,26 +493,38 @@ def _started(moment: Moment, printer: Printer) -> Job:
         job,
         state=JobState.STARTING,
         decided_at=now,
-        attempts=job.attempts + (Attempt(now, _what_was_asked_for(moment)),),
+        attempts=job.attempts + (Attempt(now, _what_was_asked_for(moment).in_english()),),
     )
 
 
-def _what_was_asked_for(moment: Moment) -> str:
+def _what_was_asked_for(moment: Moment) -> Said:
     assignments = moment.tool_plan.assignments
     if not assignments:
-        return "The printer accepted the start"
-    mapping = ", ".join(
-        f"slot {one.slot} on T{one.toolhead} ({one.filament_type})" for one in assignments
+        return Said(Message.ACCEPTED_THE_START)
+    return Said(
+        Message.ACCEPTED_THE_START_WITH_SLOTS,
+        {
+            "mapping": tuple(
+                Said(
+                    Message.SLOT_ON_TOOLHEAD,
+                    {
+                        "slot": one.slot,
+                        "toolhead": one.toolhead,
+                        "material": one.filament_type,
+                    },
+                )
+                for one in assignments
+            )
+        },
     )
-    return f"The printer accepted the start, {mapping}"
 
 
-def _confirmed(job: Job, now: float, printer_job_id: str, detail: str) -> Job:
+def _confirmed(job: Job, now: float, printer_job_id: str, said: Said) -> Job:
     return replace(
         job,
         state=JobState.STARTED,
         printer_job_id=printer_job_id,
-        attempts=job.attempts + (Attempt(now, detail),),
+        attempts=job.attempts + (Attempt(now, said.in_english()),),
     )
 
 
@@ -500,7 +538,9 @@ def cancel_by_hand(job: Job, now: float) -> Job:
     """
     return replace(
         _cancelled(
-            job, now, Decision(Action.CANCEL, Refusal.CANCELLED_BY_YOU, "You cancelled it")
+            job,
+            now,
+            Decision(Action.CANCEL, Refusal.CANCELLED_BY_YOU, Said(Message.CANCELLED_BY_YOU)),
         ),
         held=False,
     )

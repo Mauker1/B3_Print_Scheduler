@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 from print_scheduler import (
     LoadedFilament,
+    Message,
     ToolUse,
     colour_distance,
     normalise_colour,
@@ -68,8 +69,9 @@ def test_no_toolhead_with_that_material_is_a_refusal_naming_what_is_loaded() -> 
     only_asa = (LoadedFilament(index=0, filament_type="ASA", colour="000000FF", present=True),)
     plan = plan_tools(tools_used(WHITE_PLA_METADATA), only_asa)
     assert plan.problem is not None
-    assert "PLA" in plan.problem
-    assert "T0 ASA" in plan.problem
+    assert plan.problem.key is Message.NONE_FREE_WITH_MATERIAL
+    assert "PLA" in plan.problem.in_english()
+    assert "T0 ASA" in plan.problem.in_english()
 
 
 def test_an_empty_toolhead_is_not_a_candidate() -> None:
@@ -187,5 +189,6 @@ def test_not_enough_toolheads_of_one_material_says_how_many_short() -> None:
     three_asa = [a_slot(index, "#000000", "ASA") for index in range(3)]
     plan = plan_tools(three_asa, LOADED_ON_THE_PRINTER)
     assert plan.problem is not None
-    assert "needs 3 toolheads with ASA" in plan.problem
-    assert "the printer has 1" in plan.problem
+    assert plan.problem.key is Message.NOT_ENOUGH_OF_MATERIAL
+    assert "needs 3 toolheads with ASA" in plan.problem.in_english()
+    assert "the printer has 1" in plan.problem.in_english()

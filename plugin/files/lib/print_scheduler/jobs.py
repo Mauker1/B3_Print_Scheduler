@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from print_scheduler.messages import Message, Said
+
 # The printer's gcode parser decides both of these, and both are cheap to catch when the job is
 # created rather than at the moment it was supposed to start. Non-ASCII is deliberately absent:
 # `M118 顶盖前靴` echoed back intact on the hardware, and this printer ships files with Chinese
@@ -23,8 +25,8 @@ from typing import Any
 # sent its filename as a URL parameter instead, which takes both characters without complaint,
 # so refusing them there would be refusing files the machine can print.
 UNSTARTABLE_CHARACTERS = {
-    "#": "the gcode parser treats it as the start of a comment, so the name would be truncated",
-    '"': "the name is passed as a quoted gcode parameter, which a double quote would end early",
+    "#": Message.FILENAME_HAS_HASH,
+    '"': Message.FILENAME_HAS_QUOTE,
 }
 
 
@@ -99,7 +101,13 @@ class Job:
     estimated_seconds: float = 0.0
     state: JobState = JobState.SCHEDULED
     refusal: Refusal | None = None
+    # `detail` is the English sentence, written when the job settled. `detail_key` and
+    # `detail_values` are the same thing unrendered, so a reader gets it in their own language
+    # and a rewording reaches rows that settled before it. A row written before this existed
+    # has no key and renders from `detail` forever, which is why there is no migration.
     detail: str = ""
+    detail_key: str = ""
+    detail_values: dict[str, Any] = field(default_factory=dict)
     decided_at: float | None = None
     # The printer's own id for the print this job started, captured once the printer
     # confirms it. It is how the page asks the printer what became of the print, and it is
@@ -129,6 +137,8 @@ class Job:
             "state": self.state.value,
             "refusal": None if self.refusal is None else self.refusal.value,
             "detail": self.detail,
+            "detail_key": self.detail_key,
+            "detail_values": self.detail_values,
             "decided_at": self.decided_at,
             "printer_job_id": self.printer_job_id,
             "held": self.held,
@@ -153,6 +163,8 @@ def job_from_dict(payload: dict[str, Any]) -> Job:
         state=JobState(payload.get("state", JobState.SCHEDULED.value)),
         refusal=None if refusal is None else Refusal(refusal),
         detail=str(payload.get("detail", "")),
+        detail_key=str(payload.get("detail_key", "")),
+        detail_values=dict(payload.get("detail_values") or {}),
         decided_at=payload.get("decided_at"),
         printer_job_id=str(payload.get("printer_job_id", "")),
         held=bool(payload.get("held", False)),
@@ -168,17 +180,31 @@ def new_job_id() -> str:
     return uuid.uuid4().hex
 
 
-def reason_filename_cannot_start(filename: str, starts_by_gcode: bool = True) -> str | None:
+def reason_filename_cannot_start(filename: str, starts_by_gcode: bool = True) -> Said | None:
     """Return why this name cannot be handed to this printer, or None when it can.
 
     `starts_by_gcode` says whether the start goes out as a gcode command. It defaults to the
     strict answer, so a caller that has not thought about it refuses more rather than less.
     """
     if not filename.strip():
-        return "The filename is empty"
+        return Said(Message.FILENAME_EMPTY)
     if not starts_by_gcode:
         return None
     for character, why in UNSTARTABLE_CHARACTERS.items():
         if character in filename:
-            return f"The name contains {character}, and {why}"
+            return Said(why)
     return None
+
+
+# A job's state said as a word, which is ours rather than the printer's and so is translated.
+STATE_WORDS = {
+    JobState.SCHEDULED: Message.STATE_SCHEDULED,
+    JobState.STARTING: Message.STATE_STARTING,
+    JobState.STARTED: Message.STATE_STARTED,
+    JobState.CANCELLED: Message.STATE_CANCELLED,
+}
+
+
+def said_state(state: JobState) -> Said:
+    """The state as a word a person reads, for the sentences that name one."""
+    return Said(STATE_WORDS[state])

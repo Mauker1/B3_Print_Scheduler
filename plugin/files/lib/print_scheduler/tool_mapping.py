@@ -27,6 +27,7 @@ from math import dist
 from typing import Any
 
 from print_scheduler.gcode_files import ToolUse
+from print_scheduler.messages import Message, Said, Value
 from print_scheduler.printer import LoadedFilament
 
 HEX_COLOUR_LENGTH = 6
@@ -70,7 +71,7 @@ class ToolPlan:
     """How a file's slots map onto toolheads, or why they cannot."""
 
     assignments: tuple[ToolAssignment, ...] = ()
-    problem: str | None = None
+    problem: Said | None = None
     # False on a printer that does not track what is loaded. There is no map to get wrong there,
     # so the print starts without one rather than being refused for a question nobody asked.
     applicable: bool = True
@@ -78,7 +79,9 @@ class ToolPlan:
     def to_dict(self) -> dict[str, Any]:
         return {
             "assignments": [assignment.to_dict() for assignment in self.assignments],
-            "problem": self.problem,
+            "problem": None if self.problem is None else self.problem.in_english(),
+            "problem_key": "" if self.problem is None else self.problem.key.value,
+            "problem_values": {} if self.problem is None else self.problem.wire_values(),
             "applicable": self.applicable,
         }
 
@@ -127,9 +130,25 @@ def _cost(slot: ToolUse, candidate: LoadedFilament) -> float:
     return UNKNOWN_COLOUR_DISTANCE if apart is None else apart
 
 
-def _describe_what_is_loaded(loaded: Sequence[LoadedFilament]) -> str:
-    present = [f"T{one.index} {one.filament_type or 'nothing'}" for one in loaded if one.present]
-    return ", ".join(present) if present else "nothing"
+def _describe_what_is_loaded(loaded: Sequence[LoadedFilament]) -> Value:
+    """What the printer has loaded, as a phrase the reader's own language can order.
+
+    A list of toolheads is built from three separate messages: each entry, the word for an
+    empty one, and the separator. Joining translated pieces is normally the thing not to do,
+    and this is the exception the design allows, because every piece here is a noun phrase and
+    none of them is a fragment of a sentence.
+    """
+    present = [
+        Said(
+            Message.LOADED_TOOLHEAD,
+            {"index": one.index, "material": one.filament_type or Said(Message.NOTHING_LOADED)},
+        )
+        for one in loaded
+        if one.present
+    ]
+    if not present:
+        return Said(Message.NOTHING_LOADED)
+    return tuple(present)
 
 
 def plan_tools(slots: Sequence[ToolUse], loaded: Sequence[LoadedFilament]) -> ToolPlan:
@@ -137,7 +156,7 @@ def plan_tools(slots: Sequence[ToolUse], loaded: Sequence[LoadedFilament]) -> To
     if not loaded:
         return ToolPlan(applicable=False)
     if not slots:
-        return ToolPlan(problem="the file does not say what material it needs")
+        return ToolPlan(problem=Said(Message.MATERIAL_UNKNOWN))
     return _assign_each(sorted(slots, key=lambda one: one.slot), loaded)
 
 
@@ -154,12 +173,19 @@ def _assign_each(slots: Sequence[ToolUse], loaded: Sequence[LoadedFilament]) -> 
     options: list[list[LoadedFilament]] = []
     for slot in slots:
         if not slot.filament_type:
-            return ToolPlan(problem=f"the file does not say what material slot {slot.slot} needs")
+            return ToolPlan(
+                problem=Said(Message.SLOT_MATERIAL_UNKNOWN, {"slot": slot.slot})
+            )
         matching = [one for one in usable if _same_material(slot.filament_type, one.filament_type)]
         if not matching:
             return ToolPlan(
-                problem=f"no free toolhead has {slot.filament_type} loaded. The printer reports "
-                f"{_describe_what_is_loaded(loaded)}."
+                problem=Said(
+                    Message.NONE_FREE_WITH_MATERIAL,
+                    {
+                        "material": slot.filament_type,
+                        "loaded": _describe_what_is_loaded(loaded),
+                    },
+                )
             )
         # Nearest colour first, then lowest toolhead, so the search reaches a good answer early
         # and the pruning has something to prune against.
@@ -223,18 +249,22 @@ def _cheapest_whole_assignment(
 
 def _why_there_are_not_enough(
     slots: Sequence[ToolUse], loaded: Sequence[LoadedFilament]
-) -> str:
+) -> Said:
     """Every slot had somewhere it could go, and they could not all go somewhere at once."""
     usable = [one for one in loaded if one.present]
     for material in dict.fromkeys(slot.filament_type for slot in slots):
         needed = sum(1 for slot in slots if _same_material(slot.filament_type, material))
         held = sum(1 for one in usable if _same_material(material, one.filament_type))
         if needed > held:
-            return (
-                f"This file needs {needed} toolheads with {material} and the printer has "
-                f"{held}. The printer reports {_describe_what_is_loaded(loaded)}."
+            return Said(
+                Message.NOT_ENOUGH_OF_MATERIAL,
+                {
+                    "needed": Said(Message.TOOLHEAD_COUNT, {"count": needed}),
+                    "material": material,
+                    "held": held,
+                    "loaded": _describe_what_is_loaded(loaded),
+                },
             )
-    return (
-        f"the file's slots cannot all be given a toolhead of their own. The printer reports "
-        f"{_describe_what_is_loaded(loaded)}."
+    return Said(
+        Message.CANNOT_GIVE_EACH_ITS_OWN, {"loaded": _describe_what_is_loaded(loaded)}
     )

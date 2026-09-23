@@ -25,7 +25,9 @@ from print_scheduler.jobs import (
     JobState,
     new_job_id,
     reason_filename_cannot_start,
+    said_state,
 )
+from print_scheduler.messages import Message, Said
 from print_scheduler.printer import (
     LoadedFilament,
     Printer,
@@ -51,7 +53,16 @@ SETTLED_STATES = (JobState.STARTED, JobState.CANCELLED)
 
 
 class ScheduleRejectedError(Exception):
-    """The schedule will not take this job, with a reason meant to be shown to a person."""
+    """The schedule will not take this job, with a reason meant to be shown to a person.
+
+    The reason travels as a key and its values, so the browser can say it in the reader's own
+    language. The exception's own message is the English rendering, which is what a log line
+    and a traceback want.
+    """
+
+    def __init__(self, said: Said) -> None:
+        super().__init__(said.in_english())
+        self.said = said
 
 
 @dataclass(frozen=True)
@@ -176,7 +187,7 @@ class ScheduleService:
             existing = self._find(job_id)
             if existing.state not in SETTLED_STATES:
                 raise ScheduleRejectedError(
-                    f"This job is {existing.state.value} and has not settled. Cancel it first."
+                    Said(Message.NOT_SETTLED_YET, {"state": said_state(existing.state)})
                 )
             self._remember([job for job in self._jobs if job.job_id != job_id])
 
@@ -266,8 +277,7 @@ class ScheduleService:
             existing = self._find(job_id)
             if existing.state is not JobState.SCHEDULED:
                 raise ScheduleRejectedError(
-                    f"This job is already {existing.state.value} and cannot be changed. "
-                    "Schedule a new one from it instead."
+                    Said(Message.ALREADY_UNDERWAY, {"state": said_state(existing.state)})
                 )
             updated = replace(
                 existing,
@@ -290,7 +300,9 @@ class ScheduleService:
         with self._lock:
             existing = self._find(job_id)
             if existing.state is not JobState.SCHEDULED:
-                raise ScheduleRejectedError(f"This job is already {existing.state.value}")
+                raise ScheduleRejectedError(
+                    Said(Message.ALREADY_SETTLED, {"state": said_state(existing.state)})
+                )
             cancelled = cancel_by_hand(existing, now)
             self._remember([cancelled if job.job_id == job_id else job for job in self._jobs])
         return cancelled
@@ -383,7 +395,7 @@ class ScheduleService:
         for job in self._jobs:
             if job.job_id == job_id:
                 return job
-        raise ScheduleRejectedError("There is no job with that id")
+        raise ScheduleRejectedError(Said(Message.NO_SUCH_JOB))
 
     def _vet(self, request: JobRequest, now: float) -> FileSummary:
         """Refuse everything that can be refused now rather than at six in the morning."""
@@ -393,13 +405,13 @@ class ScheduleService:
         if unstartable is not None:
             raise ScheduleRejectedError(unstartable)
         if not request.bed_acknowledged:
-            raise ScheduleRejectedError(
-                "The printer cannot see the bed, so someone has to promise it will be clear"
-            )
+            raise ScheduleRejectedError(Said(Message.BED_NOT_PROMISED))
         if request.start_at <= now:
-            raise ScheduleRejectedError("That time has already passed")
+            raise ScheduleRejectedError(Said(Message.TIME_ALREADY_PASSED))
         if request.filename not in self._printer.gcode_filenames():
-            raise ScheduleRejectedError(f"{request.filename} is not on the printer")
+            raise ScheduleRejectedError(
+                Said(Message.NOT_ON_THE_PRINTER, {"filename": request.filename})
+            )
         return self._vet_the_file(request.filename)
 
     def _vet_the_file(self, filename: str) -> FileSummary:
