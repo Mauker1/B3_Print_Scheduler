@@ -13,6 +13,7 @@ import re
 from html.parser import HTMLParser
 
 import print_scheduler
+from print_scheduler import ENGLISH, Message, known_tags, say
 
 PAGE = print_scheduler.render_schedule_page("0.0.0-test")
 
@@ -75,3 +76,27 @@ def test_no_form_control_shadows_a_property_of_its_form() -> None:
 def test_the_page_reports_the_service_version() -> None:
     assert "0.0.0-test" in PAGE
     assert "__VERSION__" not in PAGE
+
+
+def test_the_page_carries_every_catalogue_it_offers() -> None:
+    """The page is self contained: no second request to find out what it says."""
+    for tag in known_tags():
+        assert f'"{tag}"' in PAGE
+    assert say(ENGLISH, Message.CANCELLED_BY_YOU) in PAGE
+    assert "__CATALOGUES__" not in PAGE
+
+
+def test_the_page_declares_the_language_it_is_written_in() -> None:
+    """A screen reader pronounces the whole page by this one attribute."""
+    assert '<html lang="en">' in PAGE
+    assert "__LANGUAGE__" not in PAGE
+
+
+def test_a_language_nobody_ships_serves_english_rather_than_nothing() -> None:
+    assert '<html lang="en">' in print_scheduler.render_schedule_page("0.0.0-test", "xx")
+
+
+def test_nothing_in_a_catalogue_can_end_the_script_element_it_sits_in() -> None:
+    """A translator writing about a `</script>` must not be able to break the page."""
+    rendered = print_scheduler.page._inside_a_script({"a": "</script><b>"})
+    assert "</script>" not in rendered

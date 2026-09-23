@@ -14,6 +14,7 @@ never to a traceback in the middle of scheduling a print.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 from string import Formatter
@@ -39,18 +40,48 @@ def catalogues_besides_english() -> list[str]:
     return [tag for tag in known_tags() if tag != ENGLISH]
 
 
+# How the page names a key: a `t()` call, a nested message inside one's values, one of the
+# three attributes that translate the static markup, or a lookup by literal index. The page's
+# keys cannot be constants the way the Python side's are, so they are read back out of it.
+KEYS_IN_THE_PAGE = (
+    re.compile(r'\bt\(\s*"([a-z][\w.-]*\.[\w.-]+)"'),
+    re.compile(r'\bjoinedWith\(\s*"([a-z][\w.-]*\.[\w.-]+)"'),
+    re.compile(r'\bmessage:\s*"([a-z][\w.-]*\.[\w.-]+)"'),
+    re.compile(r'\bdata-i18n(?:-placeholder|-aria-label)?="([a-z][\w.-]*\.[\w.-]+)"'),
+    re.compile(r'\["([a-z][\w.-]*\.[\w.-]+)"\]'),
+)
+
+
+def source_of_the_package() -> str:
+    return "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(PACKAGE_ROOT.rglob("*.py"))
+    )
+
+
+def keys_the_code_uses() -> set[str]:
+    page = (PACKAGE_ROOT / "page.py").read_text(encoding="utf-8")
+    from_the_page = {found for pattern in KEYS_IN_THE_PAGE for found in pattern.findall(page)}
+    return {message.value for message in Message} | from_the_page
+
+
 def test_english_holds_exactly_the_keys_the_code_uses() -> None:
     """No key without a sentence, and no sentence nobody says.
 
     The second half is the one that rots quietly: a message reworded out of the code leaves an
     entry behind, and every translator after that dutifully translates a string that will
     never be shown to anybody.
+
+    The page's keys are read out of its own source, because a page written in JavaScript cannot
+    share the enum. That is the weaker half of this check by nature: it can only see the keys
+    somebody wrote as literals.
     """
-    source = "\n".join(
-        path.read_text(encoding="utf-8") for path in sorted(PACKAGE_ROOT.rglob("*.py"))
-    )
-    declared = {message.value for message in Message}
-    assert set(catalogue(ENGLISH)) == declared
+    used = keys_the_code_uses()
+    assert sorted(set(catalogue(ENGLISH)) - used) == []
+    assert sorted(used - set(catalogue(ENGLISH))) == []
+
+
+def test_every_key_the_python_declares_is_one_it_says() -> None:
+    source = source_of_the_package()
     unused = sorted(
         message.value for message in Message if f"Message.{message.name}" not in source
     )
