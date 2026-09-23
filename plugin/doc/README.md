@@ -259,6 +259,45 @@ once a job has settled. It only changes how many rows you see: the scheduler kee
 history of its own to tell a levelled print's setup time from an unlevelled one whatever this is
 set to.
 
+**Language** (default `en`). Which language this plugin's page starts in: `en` for English,
+`pt-BR` for Brazilian Portuguese. It is the starting point for everybody who opens the page, and
+anybody reading it can choose differently for their own browser without changing this. A tag
+nothing on the printer can serve falls back to English and says so, the same way an unusable
+number does.
+
+## What is in your language, and what is not
+
+**The page is.** Everything this plugin writes, including the reason a job did not run, is stored
+as a key rather than as a sentence and made into words when somebody reads it. So a job that was
+cancelled last week reads in whichever language you are reading today, and a reason we reword in a
+later version reaches the rows that settled before it.
+
+**The printer's own words are not.** Klipper's state, Moonraker's refusal, your filenames: those
+pass through exactly as the machine said them. Translating a machine's message makes it
+impossible to search for and useless in a bug report, which is the opposite of what a message like
+that is for.
+
+**The log is not.** It is always English. A log is read by whoever is debugging, who is often not
+the person who owns the printer, and a Portuguese traceback in a bug report helps nobody.
+
+**Bespok3d's own surfaces are not.** The plugin's tile, its install dialog, the labels and hints
+on these settings: the platform has no way to offer a translation of any of them, so they are
+English whatever this is set to. That is a limit of the platform rather than a decision here, and
+it is the one place where the product is only partly in your language.
+
+**Choosing for yourself.** When the plugin ships more than one language, the page carries a small
+picker beside its title. It remembers your choice in that browser alone, on that one printer, and
+nothing about it is ever sent to the printer or to anybody else. Its first entry, *Follow the
+printer*, gives up your choice again and goes back to the setting above, so a choice you made once
+is never a thing you cannot undo. Clearing your browser's site data has the same effect.
+
+**Another language** is a JSON file of the same keys next to the two that are there, under
+`files/lib/print_scheduler/locale/`, and a pull request. Nothing else changes: the page finds
+whatever is installed. A key nobody translated shows in English rather than as a gap, and a
+translation with a typo in a placeholder falls back to English rather than stopping anything,
+which is deliberate: a mistake in a sentence must never be able to stop a print from being
+scheduled.
+
 ## Coming back after a long time away
 
 The scheduler can stop running without you deciding that it should. The Bespok3d daemon
