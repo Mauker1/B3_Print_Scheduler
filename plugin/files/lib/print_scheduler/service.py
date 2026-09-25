@@ -109,8 +109,12 @@ def projected_finish(job: Job, setup_seconds: float | None = None) -> float | No
     Two parts, and they have different owners. The slicer says how long the printing takes. The
     printer says how long it spends getting ready, and only history knows that, so a printer
     that has not finished anything yet gets a projection without it rather than a guess.
+
+    None for a held job too. It starts when somebody answers, which nobody can know, so any
+    finish computed from its scheduled time is a time it will not finish at. That was on screen
+    until 0.4.1, and it fed the overlap warning a finish that was not going to happen.
     """
-    if job.estimated_seconds <= 0:
+    if job.estimated_seconds <= 0 or job.held:
         return None
     return job.start_at + (setup_seconds or 0.0) + job.estimated_seconds
 
@@ -132,8 +136,11 @@ def overlapping_job_ids(jobs: Sequence[Job], setups: SetupTimes | None = None) -
     than a typical one, because a warning that a job might collide is worth having and a
     collision that was not warned about costs a cancelled print.
     """
+    # Held jobs are left out on both sides: neither the time one was due nor the time it would
+    # finish says anything about when it will actually run.
     pending = sorted(
-        (job for job in jobs if job.state is JobState.SCHEDULED), key=lambda job: job.start_at
+        (job for job in jobs if job.state is JobState.SCHEDULED and not job.held),
+        key=lambda job: job.start_at,
     )
     clashes: dict[str, str] = {}
     for position, job in enumerate(pending):

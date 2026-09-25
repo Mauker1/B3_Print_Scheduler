@@ -23,6 +23,8 @@ from print_scheduler import (
     ScheduleStore,
     Settings,
     job_from_dict,
+    overlapping_job_ids,
+    projected_finish,
 )
 from printer_stand_in import BENCHY, IDLE, StandInPrinter
 
@@ -110,3 +112,23 @@ def test_a_refused_start_now_leaves_the_job_held_and_says_why(tmp_path: Path) ->
     assert "started-by-hand.gcode" in str(refused.value)
     assert service.jobs()[0] == bed
     assert printer.started == []
+
+
+def test_a_held_job_projects_no_finish_it_will_not_make() -> None:
+    """It starts when somebody answers. A finish worked out from its scheduled time is a time
+    it will not finish at, and it was on screen until 0.4.1."""
+    held = a_job(estimated_seconds=600.0, hold=HoldReason.BED_NOT_CONFIRMED,
+                 held_at=SIX_IN_THE_MORNING)
+    assert projected_finish(held, 120.0) is None
+    assert projected_finish(replace(held, hold=None, held_at=None), 120.0) is not None
+
+
+def test_a_held_job_neither_raises_nor_receives_an_overlap_warning() -> None:
+    held = a_job(job_id="held", estimated_seconds=3600.0, hold=HoldReason.BED_NOT_CONFIRMED,
+                 held_at=SIX_IN_THE_MORNING)
+    soon_after = a_job(job_id="after", start_at=SIX_IN_THE_MORNING + 600, estimated_seconds=60.0)
+    overlapped_by_nothing = a_job(job_id="later", start_at=SIX_IN_THE_MORNING + 700,
+                                  estimated_seconds=60.0)
+    assert overlapping_job_ids([held, soon_after]) == {}
+    held_later = replace(held, start_at=SIX_IN_THE_MORNING + 650)
+    assert overlapping_job_ids([soon_after, held_later, overlapped_by_nothing]) == {}

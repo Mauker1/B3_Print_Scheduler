@@ -5,6 +5,15 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.4.1
+
+- **A held job no longer claims a start and a finish it will not make.** Its row said "Starts" at
+  its scheduled time and projected a finish from it, both untrue once the job is waiting for you:
+  it starts when you answer. It now says when it was due and that it is held, and shows no finish
+  until it has started.
+- **A held job no longer takes part in the warning about jobs running into each other**, on either
+  side. Its finish was being worked out from a start that was not going to happen.
+
 ## 0.4.0
 
 A job no longer starts while the printer still shows a finished print. It waits for you.

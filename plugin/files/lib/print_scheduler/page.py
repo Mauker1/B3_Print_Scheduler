@@ -633,6 +633,13 @@ function preferenceValue(id) {
 // ---- the schedule -----------------------------------------------------------------------------
 
 function jobHeadline(job) {
+  // A held job starts when somebody answers, not at its time, so "Starts" would be a promise the
+  // row cannot keep. Its projections are left out by the service for the same reason.
+  if (job.state === "scheduled" && job.hold) {
+    var due = { when: whenLocal(job.start_at) };
+    return job.start_at <= Date.now() / 1000 ? t("page.was-due-held", due)
+                                            : t("page.due-held", due);
+  }
   if (job.state === "scheduled") { return t("page.starts-at", { when: whenLocal(job.start_at) }); }
   if (job.state === "starting") { return t("page.starting-now"); }
   if (job.state === "started") { return t("page.started-at", { when: whenLocal(job.decided_at) }); }

@@ -170,5 +170,7 @@
   "page.held-for-the-bed": "Esperando por você: a impressora ainda mostra uma impressão concluída.",
   "page.held-for-the-bed-since-dismissed": "Esperando por você: às {when} a impressora ainda mostrava uma impressão concluída. Ela já foi dispensada, mas a tarefa não começa sozinha.",
   "page.cleared-start-now": "Já liberei a mesa, começar agora",
-  "page.bed-clear-start-now": "A mesa está livre, começar agora"
+  "page.bed-clear-start-now": "A mesa está livre, começar agora",
+  "page.was-due-held": "Prevista para {when}, retida",
+  "page.due-held": "Prevista para {when}, retida até você confirmar"
 }

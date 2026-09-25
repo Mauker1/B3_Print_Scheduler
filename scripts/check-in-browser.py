@@ -705,6 +705,8 @@ def check_the_row_asks_about_the_bed(page: Page, printer: StandInPrinter) -> Non
     check("and offers to start it once the bed is cleared",
           "I've cleared the bed, start it now" in row, True)
     check("the long silence banner stays out of it", text_of(page, "#held-notice"), "")
+    check("it says when it was due rather than that it starts", "Was due" in row, True)
+    check("and projects no finish it will not make", "should finish" in row, False)
 
 
 def check_a_screen_dismissal_starts_nothing(page: Page, printer: StandInPrinter) -> None:

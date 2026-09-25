@@ -170,5 +170,7 @@
   "page.held-for-the-bed": "Waiting for you: the printer still shows a finished print.",
   "page.held-for-the-bed-since-dismissed": "Waiting for you: at {when} the printer still showed a finished print. It has been dismissed since, but the job does not start by itself.",
   "page.cleared-start-now": "I've cleared the bed, start it now",
-  "page.bed-clear-start-now": "The bed is clear, start it now"
+  "page.bed-clear-start-now": "The bed is clear, start it now",
+  "page.was-due-held": "Was due {when}, held",
+  "page.due-held": "Due {when}, held until you confirm"
 }
