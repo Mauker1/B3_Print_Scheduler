@@ -118,7 +118,8 @@ once the setup time is counted, and a warning that only appears afterwards is no
 ## The rules it applies before starting anything
 
 A scheduled job reaches exactly one outcome, and every outcome is recorded with a reason. Nothing
-fails silently and nothing waits forever. The rules are checked in the order below, and the order
+fails silently. The one thing that waits for as long as it takes is a job held for you to answer,
+and the page says so on that job's own row. The rules are checked in the order below, and the order
 is part of the design: lateness is checked before the printer is, so a job whose moment has passed
 does not start however healthy the printer looks.
 
@@ -130,7 +131,7 @@ does not start however healthy the printer looks.
 | Klipper is still starting up | **Retried**, same budget |
 | Klipper is shut down or in error | **Cancelled**, with Klipper's own message. It will not fix itself, and waiting would only replace the real reason with "missed" |
 | A print is running or paused | **Cancelled**, naming the file it was busy with. It does not wait |
-| A print finished or was cancelled after you scheduled this job, and has not been dismissed | **Cancelled**: something may be on the bed that you could not have known about when you promised it would be clear. One that was already showing when you scheduled the job does not block it |
+| The printer shows a print that finished or was cancelled and has not been dismissed | **Held for you**, whenever that print ended. It waits on its own row until you say the bed is clear; see [The bed](#the-bed) |
 | The print reports an error | **Cancelled**, with the printer's message |
 | Something other than a print is running | **Retried**: a calibration started by hand is a matter of minutes |
 | The file is no longer on the printer | **Cancelled** |
@@ -141,7 +142,11 @@ does not start however healthy the printer looks.
 | None of the above | **Started**, once the printer is seen to act on it |
 | You cancelled it | **Cancelled**, recorded as your decision rather than as a refusal |
 
-Three of those deserve saying out loud.
+Four of those deserve saying out loud.
+
+**A job never starts over a print the printer still shows.** It is held and asks you, because the
+scheduler cannot see the bed, and not starting a print is always better than starting one onto a
+part.
 
 **A busy printer is never waited for.** If a print is running when your job comes due, the job is
 cancelled there and then. Starting a print hours late, unattended, is a surprise that moves a hot
@@ -187,26 +192,61 @@ assumed.
 
 ## The bed
 
-The scheduler cannot see the bed. Whoever schedules a job is the one promising it will be clear,
-and the page asks you to say so. What the scheduler adds on top is narrow, and worth stating
-precisely, because the obvious version of it is wrong.
+The scheduler cannot see the bed. Whoever schedules a job promises it will be clear, and the page
+asks you to say so. What the scheduler adds on top is one rule, and it errs on the side of not
+printing.
 
-A printer that reports a finished or cancelled print may well have something on it, because
-clearing the bed and dismissing the print on the screen are the same habit. But that state is a
-latch, not a reading: this printer keeps saying `cancelled` until someone dismisses it, for hours
-or for days, and treating it as a fact would mean one cancelled print silently stops every job you
-schedule afterwards.
+A printer that shows a finished or cancelled print may well have something on it, because clearing
+the bed and dismissing the print are the same habit. So **a job never starts while the printer
+shows one.** When it comes due and the printer still shows a finished or cancelled print, the job is
+held, not started and not cancelled, however long ago that print ended and whether or not it was
+showing when you scheduled. The promise you gave on the form was about a moment that had not come
+yet, and a printer still showing a print at that moment is evidence against it.
 
-So the state is judged by when it arrived. A print that ended **before** you scheduled the job is
-something you could see when you made the promise, and the promise covers it. A print that ended
-**after** is something you could not have known about, and it wins: the job is cancelled and says
-so. Editing a job re-asks for the promise, which re-dates it, so a job you touch after clearing the
-bed is unblocked by the act of touching it.
-
-When the printer reports an undismissed print but gives no usable end time for it, there is nothing
-to compare against and the job is cancelled, saying exactly that.
+This is a change from before 0.4.0, when a print already showing as you scheduled was taken to be
+covered by your promise. That rule existed only because a finished print never clears itself, and
+refusing on it could stop the scheduler until somebody walked over to the printer. There is now a
+way out from the page, so the scheduler asks instead of taking the promise on trust. **Some prints
+that used to start will now wait for you, on purpose.** The habit that avoids it is dismissing the
+print, on the printer or on the page, when you take the part off.
 
 Nothing here detects a part, a skirt, a purge blob or a tool left on the plate.
+
+### When you schedule
+
+If the printer shows a finished print when you schedule, the form says so, beside the promise
+about the bed, with a button: **I've cleared the bed**. Pressing it dismisses the print on the
+printer the way Mainsail's Clear button does, so the job will not be held when it comes due.
+
+The command behind that button also stops a print that is running, so it is guarded more carefully
+than anything else the page does. It is only offered for a finished or cancelled print on a printer
+that is ready. When you press it, the plugin asks the printer again, right then, rather than trusting
+what the page showed, because the page can be a few seconds out of date and a print somebody has
+just started from the touchscreen must not be the thing it stops. If the answer has changed,
+nothing is sent and the page says why. Checking and sending happen under the same lock the
+scheduler holds while it starts prints, so it cannot start one in between either. A print that
+ended in an error is never offered: that one deserves somebody walking over to the printer.
+
+### When a job is held
+
+Its row says why: **Waiting for you: the printer still shows a finished print**, with **I've
+cleared the bed, start it now**. Pressing that starts the job there and then, however late it is,
+because you asked. Every other check still applies, afresh:
+
+- if something would pass by itself, such as another print running, the printer not answering or
+  Klipper not ready, **nothing starts, the job stays held**, and the page says why so you can try
+  again;
+- if something never will, such as the file having gone or no toolhead holding the material, the
+  job is cancelled with that reason, exactly as it would be at a normal start.
+
+**Dismissing the print on the printer's own screen does not start a held job.** Somebody dismissing
+a print in the evening is not asking for the morning's job to begin while they load something else.
+The row keeps saying why the job did not start, and when, and offers **The bed is clear, start it
+now** instead. Cancelling works as it always has.
+
+A job held for the bed is not the same as the jobs held after a long silence, and the two are
+answered separately: confirming the schedule after a silence never starts a job that is waiting
+for the bed.
 
 ## Time
 

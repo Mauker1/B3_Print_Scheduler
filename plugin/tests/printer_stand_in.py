@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from print_scheduler import (
+    DismissRefusedError,
     LoadedFilament,
     PrinterSnapshot,
     PrintRecord,
@@ -147,6 +148,10 @@ class StandInPrinter:
     offers_preferences: bool = True
     loads: tuple[LoadedFilament, ...] = LOADED_ON_THE_PRINTER
     loading_raises: OSError | None = None
+    refuses_dismiss_with: str | None = None
+    # How many times the dismiss command reached this printer. The number the tests care about
+    # most is zero, for every state in which it must not be sent.
+    dismissed: int = 0
     # filename, level bed, record timelapse, and the slot to toolhead pairs it was given.
     started: list[tuple[str, bool | None, bool | None, tuple[tuple[int, int], ...]]] = field(
         default_factory=list
@@ -203,6 +208,13 @@ class StandInPrinter:
         if self.refuses_start_with is not None:
             raise StartRefusedError(self.refuses_start_with)
         self.started.append((filename, level_bed, record_timelapse, assignments))
+
+    def dismiss_finished_print(self) -> None:
+        if self.refuses_dismiss_with is not None:
+            raise DismissRefusedError(self.refuses_dismiss_with)
+        self.dismissed += 1
+        # What Klipper does: the print is forgotten and the printer reads as idle again.
+        self.reports = replace(self.reports, print_state="standby")
 
 
 def a_generic_klipper(**overrides: Any) -> StandInPrinter:

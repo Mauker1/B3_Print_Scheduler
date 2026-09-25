@@ -48,6 +48,10 @@ class StartRefusedError(Exception):
     """The printer refused to start the print. The message is the printer's own."""
 
 
+class DismissRefusedError(Exception):
+    """The printer refused to clear a finished print. The message is the printer's own."""
+
+
 @dataclass(frozen=True)
 class LoadedFilament:
     """What is actually in one of the printer's toolheads right now."""
@@ -143,5 +147,16 @@ class Printer(Protocol):
         """Start the print.
 
         Raises StartRefusedError carrying the printer's own message if it will not.
+        """
+        ...
+
+    def dismiss_finished_print(self) -> None:
+        """Clear a print that has ended, so the printer reads as idle again.
+
+        This does no checking of its own, deliberately. The command behind it stops a print
+        that is running, so whether it may be sent is decided by the one caller that holds
+        the schedule's lock, immediately before sending it, and nowhere else.
+
+        Raises DismissRefusedError carrying the printer's own message if it will not.
         """
         ...

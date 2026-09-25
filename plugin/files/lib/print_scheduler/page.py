@@ -156,6 +156,7 @@ footer { font-size: 0.8rem; color: var(--quiet); display: flex; align-items: bas
   <p class="quiet" id="start-help"></p>
 </div>
 <div id="preferences"></div>
+<div id="form-bed-warning"></div>
 <div class="check">
   <input type="checkbox" id="bed-clear">
   <label for="bed-clear" data-i18n="page.bed-will-be-clear">The bed will be clear. The printer
@@ -297,7 +298,7 @@ var REFRESH_MILLISECONDS = 10000;
 var FILES_REFRESH_MILLISECONDS = 15000;
 
 var state = { jobs: [], printer: null, summary: null, editing: null,
-              files: [], chosen: "", armedToClear: false };
+              files: [], chosen: "", armedToClear: false, dismissing: false };
 // A long list is slow to build and pointless to read. Past this, search is the way in.
 var MOST_FILES_TO_DRAW = 40;
 
@@ -426,6 +427,7 @@ function renderPrinter() {
   });
 
   renderIgnoredSettings(printer.settings_ignored || []);
+  renderFormBedWarning(printer);
 
   var skew = Math.abs(printer.printer_time - (Date.now() / 1000));
   var warning = document.getElementById("clock-warning");
@@ -436,6 +438,47 @@ function renderPrinter() {
   } else {
     replaceChildren(warning, []);
   }
+}
+
+function showsAFinishedPrint(printer) {
+  return Boolean(printer && printer.reachable && printer.klipper_state === "ready" &&
+    (printer.print_state === "complete" || printer.print_state === "cancelled"));
+}
+
+// Beside the promise about the bed, because that is the moment the question matters: a job
+// scheduled while the printer shows a finished print will wait for you when it is due, and the
+// way to stop that is right here. The button is shown from the page's copy of the state, which
+// can be seconds old, so it is only an offer: whether the printer may actually be cleared is
+// asked of the printer again when it is pressed, because the command behind it stops a print
+// that is running. An error is deliberately not offered: a print that failed deserves somebody
+// walking over to the printer.
+function renderFormBedWarning(printer) {
+  if (state.dismissing) { return; }
+  var target = document.getElementById("form-bed-warning");
+  if (!showsAFinishedPrint(printer)) { replaceChildren(target, []); return; }
+  var warning = element("div", "warn");
+  warning.appendChild(element("p", null, t("page.form-bed-warning")));
+  warning.appendChild(actionButton(t("page.i-cleared-the-bed"), dismissTheFinishedPrint));
+  replaceChildren(target, [warning]);
+}
+
+// The label is the promise. Pressing it is saying the bed is clear, and there is no second
+// click because there is nothing further to confirm: this is the person's word, and they have
+// just given it.
+function dismissTheFinishedPrint() {
+  state.dismissing = true;
+  var button = document.querySelector("#form-bed-warning button");
+  if (button) { button.disabled = true; }
+  postJson("./printer/dismiss", {}).then(function () {
+    state.dismissing = false;
+    return Promise.all([loadPrinter(), loadJobs()]);
+  }).catch(function (problem) {
+    state.dismissing = false;
+    // Left on screen until the next poll redraws it, by which time the printer's newer state
+    // says for itself what changed.
+    replaceChildren(document.getElementById("form-bed-warning"),
+                    [element("p", "stop", problem.message)]);
+  });
 }
 
 // A setting the plugin cannot use falls back to its default, and says so here as well as in
@@ -661,11 +704,14 @@ function renderJob(job) {
   // Only a job that is still scheduled can be waiting on you. A settled row carrying the flag
   // is either history from before it was cleared at cancellation, or a bug; either way saying
   // "waiting for your confirmation" about a job that already ran is worse than saying nothing.
-  if (job.held && job.state === "scheduled") {
+  if (job.hold === "long-silence" && job.state === "scheduled") {
     // Short on purpose. The banner above the list has already said that nothing starts until
     // you confirm; this marker exists for a list long enough that the banner has scrolled away,
     // and saying it twice in three lines is how a warning stops being read.
     body.appendChild(element("p", "warn", t("page.waiting-for-your-confirmation")));
+  }
+  if (job.hold === "bed-not-confirmed" && job.state === "scheduled") {
+    body.appendChild(heldForTheBed(job));
   }
   if (job.overlaps_with) {
     body.appendChild(element("p", "warn", t("page.overlaps-with-an-earlier-job")));
@@ -691,6 +737,32 @@ function renderJob(job) {
     actionButton(t("page.schedule-another-like-this"), function () { copyInto(job); }));
   body.appendChild(actions);
   return card;
+}
+
+// Why the job did not start, said even once the reason has gone. A job that waits after the bed
+// was dismissed on the printer's screen is doing what it was designed to do, since nothing
+// starts on a screen dismissal, and with no reason on screen it would read as a bug.
+function heldForTheBed(job) {
+  // Until the printer has answered, the stronger question: asking somebody to clear a bed that
+  // is already clear costs a glance, telling them it was dismissed when it was not costs a part.
+  var stillShowing = !state.printer || showsAFinishedPrint(state.printer);
+  var held = element("div", "warn");
+  held.appendChild(element("p", null, stillShowing
+    ? t("page.held-for-the-bed")
+    : t("page.held-for-the-bed-since-dismissed", { when: whenLocal(job.held_at) })));
+  // Two literal calls rather than one with a chosen key, so the catalogue check can see both.
+  held.appendChild(actionButton(
+    stillShowing ? t("page.cleared-start-now") : t("page.bed-clear-start-now"),
+    function () { startNow(job); }));
+  return held;
+}
+
+function startNow(job) {
+  postJson("./jobs/start-now", { job_id: job.job_id })
+    .then(function () { return Promise.all([loadJobs(), loadPrinter()]); })
+    .catch(function (problem) {
+      showProblem(document.getElementById("form-problem"), problem.message);
+    });
 }
 
 function actionButton(label, whenClicked) {
@@ -727,7 +799,9 @@ function renderJobs() {
     return job.state === "started" || job.state === "cancelled";
   }).sort(byNewestSettledFirst);
 
-  renderHeldNotice(pending.filter(function (job) { return job.held; }));
+  // Only the long silence belongs in the banner. A job waiting for the bed asks its own
+  // question on its own row, and "the scheduler was not running" would be untrue about it.
+  renderHeldNotice(pending.filter(function (job) { return job.hold === "long-silence"; }));
   replaceChildren(document.getElementById("pending"),
     pending.length ? pending.map(renderJob)
                    : [element("p", "quiet", t("page.nothing-scheduled"))]);
@@ -957,6 +1031,10 @@ function loadPrinter() {
     state.printer = payload;
     renderPrinter();
     renderPreferences();
+    // A job held for the bed says different things depending on what the printer shows, and
+    // the two requests land in whichever order they land in. Redrawn here so a row is never a
+    // poll behind the printer it describes.
+    renderJobs();
   }).catch(function (problem) {
     document.getElementById("printer-line").textContent = problem.message;
   });

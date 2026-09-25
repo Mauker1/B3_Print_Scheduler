@@ -21,6 +21,7 @@ from print_scheduler.gcode_files import FileRow, FileSummary, file_rows, summari
 from print_scheduler.heartbeat import A_LONG_SILENCE_SECONDS, Heartbeat
 from print_scheduler.history import SetupTimes, measure_setup_times, verdict_for
 from print_scheduler.jobs import (
+    HoldReason,
     Job,
     JobState,
     new_job_id,
@@ -29,12 +30,15 @@ from print_scheduler.jobs import (
 )
 from print_scheduler.messages import Message, Said
 from print_scheduler.printer import (
+    KLIPPER_READY,
+    UNCLEARED_BED_STATES,
+    DismissRefusedError,
     LoadedFilament,
     Printer,
     PrinterSnapshot,
     PrintRecord,
 )
-from print_scheduler.runner import cancel_by_hand, run_tick
+from print_scheduler.runner import cancel_by_hand, run_tick, start_now
 from print_scheduler.settings import Settings
 from print_scheduler.store import ScheduleStore
 from print_scheduler.tool_mapping import ToolPlan, plan_tools
@@ -236,8 +240,42 @@ class ScheduleService:
             len(held),
         )
         self._remember(
-            [replace(job, held=True) if job.job_id in held else job for job in self._jobs]
+            [
+                replace(job, hold=HoldReason.LONG_SILENCE, held_at=now)
+                if job.job_id in held
+                else job
+                for job in self._jobs
+            ]
         )
+
+    def dismiss_finished_print(self) -> None:
+        """Clear a finished print, on the person's word that the bed is clear.
+
+        The printer is asked its state here, afresh, and never taken from the page, which can
+        be seconds out of date. The command behind this stops a print that is running, and a
+        print somebody started from the touchscreen since the page last looked is exactly the
+        one that must not be stopped. So the answer is read and acted on with nothing in
+        between.
+
+        Both happen under the schedule's lock, which the tick holds while it starts prints.
+        The likeliest thing to start a print in that gap is not another client, it is this
+        scheduler, and the lock is what rules it out. What remains is one round trip to a
+        Moonraker on the same machine, and nothing short of a Klipper macro can close that,
+        because Klipper only evaluates a condition inside a macro.
+        """
+        with self._lock:
+            seen = self._printer.snapshot()
+            why_not = why_nothing_can_be_dismissed(seen)
+            if why_not is not None:
+                raise ScheduleRejectedError(why_not)
+            try:
+                self._printer.dismiss_finished_print()
+            except DismissRefusedError as refused:
+                raise ScheduleRejectedError(
+                    Said(Message.THE_PRINTER_SAID, {"message": str(refused)})
+                ) from refused
+        _log.info("cleared a %s print on request, on the word that the bed is clear",
+                  seen.print_state)
 
     def release_held_jobs(self) -> int:
         """Let every held job stand again. Returns how many were released.
@@ -247,10 +285,40 @@ class ScheduleService:
         person confirm six promises to get at the one they care about.
         """
         with self._lock:
-            held = [job for job in self._jobs if job.held]
+            # Only the holds this button was asked about. A job waiting for the bed has its own
+            # question, answered on its own row, and releasing it here would start a print over
+            # a bed nobody has looked at.
+            held = [job for job in self._jobs if job.hold is HoldReason.LONG_SILENCE]
             if held:
-                self._remember([replace(job, held=False) for job in self._jobs])
+                self._remember([
+                    replace(job, hold=None, held_at=None)
+                    if job.hold is HoldReason.LONG_SILENCE
+                    else job
+                    for job in self._jobs
+                ])
             return len(held)
+
+    def start_now(self, job_id: str, now: float) -> Job:
+        """Start a job held for the bed, now, on the word of the person asking.
+
+        Under the same lock as the tick, so the scheduler cannot start something of its own in
+        between. A reason worth trying again is refused in words and leaves the job held; see
+        `runner.start_now` for which reasons those are.
+        """
+        with self._lock:
+            existing = self._find(job_id)
+            if existing.state is not JobState.SCHEDULED:
+                raise ScheduleRejectedError(
+                    Said(Message.ALREADY_SETTLED, {"state": said_state(existing.state)})
+                )
+            if existing.hold is not HoldReason.BED_NOT_CONFIRMED:
+                raise ScheduleRejectedError(Said(Message.NOT_WAITING_FOR_THE_BED))
+            updated, not_now = start_now(existing, self._printer, now, self.tolerance_seconds())
+            if not_now is not None:
+                raise ScheduleRejectedError(not_now)
+            self._remember([updated if job.job_id == job_id else job for job in self._jobs])
+        _log.info("started %s now, on the word that the bed is clear", existing.filename)
+        return updated
 
     def add(self, request: JobRequest, now: float) -> Job:
         summary = self._vet(request, now)
@@ -423,6 +491,24 @@ class ScheduleService:
             raise ScheduleRejectedError(plan.problem)
         return summary
 
+
+def why_nothing_can_be_dismissed(seen: PrinterSnapshot) -> Said | None:
+    """Why this printer must not be sent the dismiss command right now, or None if it may.
+
+    Only a print that ended and was not dismissed qualifies, on a Klipper that is ready. An
+    error is deliberately not among them: a print that failed deserves somebody walking over
+    to the printer, not a button on a phone.
+    """
+    if not seen.reachable:
+        return Said(Message.PRINTER_DID_NOT_ANSWER, {"message": seen.klipper_message})
+    if seen.klipper_state != KLIPPER_READY:
+        return Said(
+            Message.KLIPPER_NOT_READY,
+            {"state": seen.klipper_state, "message": seen.klipper_message},
+        )
+    if seen.print_state not in UNCLEARED_BED_STATES:
+        return Said(Message.NOTHING_TO_DISMISS, {"state": seen.print_state})
+    return None
 
 def _levelling_by_printer_job(jobs: Sequence[Job]) -> dict[str, bool]:
     """Which of the printer's own prints we know the levelling choice for.

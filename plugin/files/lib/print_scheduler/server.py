@@ -11,6 +11,11 @@ Every endpoint that changes the schedule takes `application/json` and refuses an
 is not fussiness. A cross-origin HTML form can post form-encoded or plain text without the browser
 asking permission first, but it cannot post JSON, so requiring it means a page on another site
 cannot quietly schedule a print on your machine.
+
+It is enforced once, in the dispatcher, for every POST, rather than by each route remembering to
+ask. Two routes had not: clearing the settled list, and releasing the jobs held after a long
+silence, which is the one that matters, because that hold is a safety check and releasing it
+lets a print start. Found in 0.3.0 while adding a third route that had not asked either.
 """
 
 from __future__ import annotations
@@ -115,7 +120,7 @@ class SchedulerRequestHandler(BaseHTTPRequestHandler):
         # rejected the following GET as an unsupported method called `{}GET`. Reading it once
         # here means no handler can reintroduce that by not caring about its body.
         self._body = self._read_the_body()
-        self._dispatch(POST_ROUTES)
+        self._dispatch(POST_ROUTES, insists_on_json=True)
 
     def _read_the_body(self) -> bytes:
         length = int(self.headers.get("Content-Length", "0") or 0)
@@ -123,7 +128,7 @@ class SchedulerRequestHandler(BaseHTTPRequestHandler):
             return b""
         return self.rfile.read(min(length, MAXIMUM_BODY_BYTES))
 
-    def _dispatch(self, routes: dict[str, Route]) -> None:
+    def _dispatch(self, routes: dict[str, Route], insists_on_json: bool = False) -> None:
         requested_path = urlsplit(self.path).path
         route = routes.get(requested_path)
         if route is None:
@@ -132,6 +137,11 @@ class SchedulerRequestHandler(BaseHTTPRequestHandler):
             )
             return
         try:
+            if insists_on_json:
+                # Parsed and thrown away. A route that wants the body parses it again, which
+                # costs nothing beside a round trip to the printer, and a route that does not
+                # care about its body can no longer forget to refuse the wrong kind of one.
+                self.json_body()
             route(self)
         except (BadRequestError, ScheduleRejectedError) as refused:
             self.respond_json(HTTPStatus.BAD_REQUEST, _why_it_was_refused(refused))
@@ -321,6 +331,20 @@ def forget_settled_jobs(handler: SchedulerRequestHandler) -> None:
     handler.respond_json(HTTPStatus.OK, {"forgotten": gone})
 
 
+def dismiss_finished_print(handler: SchedulerRequestHandler) -> None:
+    """Clear a finished print. Whether it may be cleared is decided by the service, afresh."""
+    handler.schedule().dismiss_finished_print()
+    handler.respond_json(HTTPStatus.OK, {"dismissed": True})
+
+
+def start_now(handler: SchedulerRequestHandler) -> None:
+    """Start a job held for the bed, now, on the word of whoever pressed the button."""
+    job_id = str(handler.json_body().get("job_id", ""))
+    if not job_id:
+        raise BadRequestError("name a job")
+    handler.respond_json(HTTPStatus.OK, handler.schedule().start_now(job_id, time.time()).to_dict())
+
+
 def release_held_jobs(handler: SchedulerRequestHandler) -> None:
     """Let jobs held after a long silence stand again, all of them at once."""
     released = handler.schedule().release_held_jobs()
@@ -344,6 +368,8 @@ POST_ROUTES: dict[str, Route] = {
     "/jobs/forget": forget_job,
     "/jobs/forget-settled": forget_settled_jobs,
     "/jobs/release": release_held_jobs,
+    "/jobs/start-now": start_now,
+    "/printer/dismiss": dismiss_finished_print,
 }
 
 

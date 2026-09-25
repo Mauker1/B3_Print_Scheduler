@@ -23,8 +23,6 @@
   "detail.printer-was-paused": "The printer was paused on {file}",
   "detail.printer-was-busy": "The printer was busy with {file}",
   "detail.another-job": "another job",
-  "detail.bed-state-with-no-record": "The printer reports the previous print as {state} and gives no usable record of when it ended, so there is no telling whether that happened after you promised the bed would be clear. Dismiss the last print on the printer, then reschedule.",
-  "detail.bed-print-after-the-promise": "A print was {state} after you scheduled this, so there may be something on the bed that you could not have known about when you promised it would be clear.",
   "detail.the-printer-said": "{message}",
   "detail.other-gcode-running": "Something other than a print is running on the printer",
   "detail.file-gone": "{filename} is no longer on the printer",
@@ -161,5 +159,16 @@
   "page.never-printed": "never printed",
   "page.no-file-matches": "No file matches that.",
   "page.showing-some-files": "Showing {drawn} of {total}. Search to narrow it down.",
-  "page.start-help": "Read in this device's timezone, {zone}, and sent to the printer as an exact instant."
+  "page.start-help": "Read in this device's timezone, {zone}, and sent to the printer as an exact instant.",
+  "refused.nothing-to-dismiss": "There is nothing to dismiss: the printer now reports {state}.",
+  "page.i-cleared-the-bed": "I've cleared the bed",
+  "detail.held-for-the-bed": "Held because the printer still showed a {state} print, so it waits for somebody to confirm the bed is clear",
+  "detail.confirmed-start-now": "You confirmed the bed was clear and asked for it to start now",
+  "refused.not-waiting-for-the-bed": "This job is not waiting for the bed",
+  "refused.not-started-now": "Nothing was started, and the job is still waiting for you. {why}",
+  "page.form-bed-warning": "The printer still shows a finished print. Clear the bed and dismiss it now, or this job will wait for you when it is due.",
+  "page.held-for-the-bed": "Waiting for you: the printer still shows a finished print.",
+  "page.held-for-the-bed-since-dismissed": "Waiting for you: at {when} the printer still showed a finished print. It has been dismissed since, but the job does not start by itself.",
+  "page.cleared-start-now": "I've cleared the bed, start it now",
+  "page.bed-clear-start-now": "The bed is clear, start it now"
 }

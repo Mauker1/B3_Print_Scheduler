@@ -73,8 +73,8 @@ class Message(str, Enum):
     PRINTER_WAS_PAUSED = "detail.printer-was-paused"
     PRINTER_WAS_BUSY = "detail.printer-was-busy"
     ANOTHER_JOB = "detail.another-job"
-    BED_STATE_WITH_NO_RECORD = "detail.bed-state-with-no-record"
-    BED_PRINT_AFTER_THE_PROMISE = "detail.bed-print-after-the-promise"
+    HELD_FOR_THE_BED = "detail.held-for-the-bed"
+    CONFIRMED_START_NOW = "detail.confirmed-start-now"
     THE_PRINTER_SAID = "detail.the-printer-said"
     OTHER_GCODE_RUNNING = "detail.other-gcode-running"
     FILE_GONE = "detail.file-gone"
@@ -106,6 +106,9 @@ class Message(str, Enum):
     BED_NOT_PROMISED = "refused.bed-not-promised"
     TIME_ALREADY_PASSED = "refused.time-already-passed"
     NOT_ON_THE_PRINTER = "refused.not-on-the-printer"
+    NOTHING_TO_DISMISS = "refused.nothing-to-dismiss"
+    NOT_WAITING_FOR_THE_BED = "refused.not-waiting-for-the-bed"
+    NOT_STARTED_NOW = "refused.not-started-now"
 
     # A setting that was there and could not be used.
     SETTING_IGNORED = "setting.ignored"

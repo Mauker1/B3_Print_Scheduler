@@ -26,6 +26,7 @@ from urllib.request import Request, urlopen
 
 from print_scheduler.gcode_files import best_thumbnail
 from print_scheduler.printer import (
+    DismissRefusedError,
     LoadedFilament,
     PrinterSnapshot,
     PrintRecord,
@@ -120,6 +121,10 @@ def snapshot_from_status(status: dict[str, Any]) -> PrinterSnapshot:
         other_gcode_running=str(idle_timeout.get("state", "")) == "Printing",
     )
 
+
+# Clears a finished print. Also stops a running one, which is the whole reason it is only ever
+# sent by `ScheduleService.dismiss_finished_print`, straight after asking the printer its state.
+DISMISS_COMMAND = "SDCARD_RESET_FILE"
 
 class MoonrakerPrinter:
     """Talks to Moonraker over the loopback interface."""
@@ -248,6 +253,21 @@ class MoonrakerPrinter:
             self._post(f"/printer/gcode/script?script={quote(script)}")
             return
         self._post(f"/printer/print/start?filename={quote(filename)}")
+
+    def dismiss_finished_print(self) -> None:
+        """Send the command Mainsail's own Clear button sends, and nothing else.
+
+        `SDCARD_RESET_FILE` is core Klipper, so it exists on every machine this plugin runs
+        on. Its own help text says it stops a print if necessary, which is why this method
+        never decides for itself whether to send it.
+        """
+        path = f"/printer/gcode/script?script={quote(DISMISS_COMMAND)}"
+        try:
+            self._request(path, "POST", START_TIMEOUT_SECONDS)
+        except HTTPError as refused:
+            raise DismissRefusedError(refused.read().decode("utf-8", "replace")) from refused
+        except (OSError, ValueError) as unreachable:
+            raise DismissRefusedError(str(unreachable)) from unreachable
 
     def _post(self, path: str) -> None:
         try:

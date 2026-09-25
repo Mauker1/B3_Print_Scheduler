@@ -40,6 +40,7 @@ from print_scheduler.history import (
 )
 from print_scheduler.jobs import (
     Attempt,
+    HoldReason,
     Job,
     JobState,
     Refusal,
@@ -71,6 +72,7 @@ from print_scheduler.printer import (
     RUNNING_PRINT_STATES,
     STATES_MEANING_OUR_PRINT_RAN,
     UNCLEARED_BED_STATES,
+    DismissRefusedError,
     LoadedFilament,
     Printer,
     PrinterSnapshot,
@@ -86,6 +88,7 @@ from print_scheduler.runner import (
     decide,
     is_due,
     run_tick,
+    start_now,
 )
 from print_scheduler.server import (
     GET_ROUTES,
@@ -141,6 +144,7 @@ __all__ = [
     "FileRow",
     "FileSummary",
     "ENGLISH",
+    "HoldReason",
     "Job",
     "JobRequest",
     "JobState",
@@ -158,6 +162,7 @@ __all__ = [
     "SetupTimes",
     "SchedulerRequestHandler",
     "SchedulerServer",
+    "DismissRefusedError",
     "StartRefusedError",
     "ToolAssignment",
     "ToolPlan",
@@ -201,6 +206,7 @@ __all__ = [
     "say",
     "render_schedule_page",
     "run_tick",
+    "start_now",
     "snapshot_from_status",
     "start_logging",
     "measure_setup_times",

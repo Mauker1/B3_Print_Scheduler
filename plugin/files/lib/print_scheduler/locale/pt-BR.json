@@ -24,8 +24,6 @@
   "detail.printer-was-paused": "A impressora estava pausada em {file}",
   "detail.printer-was-busy": "A impressora estava ocupada com {file}",
   "detail.another-job": "outra tarefa",
-  "detail.bed-state-with-no-record": "A impressora informa a impressão anterior como {state} e não dá um registro utilizável de quando ela terminou, então não há como saber se isso aconteceu depois de você prometer que a mesa estaria livre. Dispense a última impressão na impressora e agende de novo.",
-  "detail.bed-print-after-the-promise": "Uma impressão ficou {state} depois de você agendar esta, então pode haver algo na mesa que você não tinha como saber quando prometeu que ela estaria livre.",
   "detail.the-printer-said": "{message}",
   "detail.other-gcode-running": "Algo diferente de uma impressão está rodando na impressora",
   "detail.file-gone": "{filename} não está mais na impressora",
@@ -161,5 +159,16 @@
   "page.never-printed": "nunca impresso",
   "page.no-file-matches": "Nenhum arquivo corresponde a isso.",
   "page.showing-some-files": "Mostrando {drawn} de {total}. Busque para reduzir a lista.",
-  "page.start-help": "Lido no fuso horário deste dispositivo, {zone}, e enviado à impressora como um instante exato."
+  "page.start-help": "Lido no fuso horário deste dispositivo, {zone}, e enviado à impressora como um instante exato.",
+  "refused.nothing-to-dismiss": "Não há nada para dispensar: a impressora agora informa {state}.",
+  "page.i-cleared-the-bed": "Já liberei a mesa",
+  "detail.held-for-the-bed": "Retida porque a impressora ainda mostrava uma impressão {state}, então espera alguém confirmar que a mesa está livre",
+  "detail.confirmed-start-now": "Você confirmou que a mesa estava livre e pediu para começar agora",
+  "refused.not-waiting-for-the-bed": "Esta tarefa não está esperando pela mesa",
+  "refused.not-started-now": "Nada foi iniciado, e a tarefa continua esperando por você. {why}",
+  "page.form-bed-warning": "A impressora ainda mostra uma impressão concluída. Libere a mesa e dispense agora, ou esta tarefa vai esperar por você quando chegar a hora.",
+  "page.held-for-the-bed": "Esperando por você: a impressora ainda mostra uma impressão concluída.",
+  "page.held-for-the-bed-since-dismissed": "Esperando por você: às {when} a impressora ainda mostrava uma impressão concluída. Ela já foi dispensada, mas a tarefa não começa sozinha.",
+  "page.cleared-start-now": "Já liberei a mesa, começar agora",
+  "page.bed-clear-start-now": "A mesa está livre, começar agora"
 }

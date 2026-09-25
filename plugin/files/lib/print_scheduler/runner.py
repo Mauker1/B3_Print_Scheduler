@@ -23,8 +23,15 @@ from dataclasses import dataclass, replace
 from enum import Enum
 
 from print_scheduler.gcode_files import tools_used
-from print_scheduler.history import find_our_print, last_print_ended_at
-from print_scheduler.jobs import Attempt, Job, JobState, Refusal, reason_filename_cannot_start
+from print_scheduler.history import find_our_print
+from print_scheduler.jobs import (
+    Attempt,
+    HoldReason,
+    Job,
+    JobState,
+    Refusal,
+    reason_filename_cannot_start,
+)
 from print_scheduler.messages import Message, Said, a_duration
 from print_scheduler.printer import (
     KLIPPER_READY,
@@ -55,6 +62,9 @@ class Action(str, Enum):
     START = "start"
     WAIT = "wait"
     CANCEL = "cancel"
+    # Neither started nor cancelled: set aside for a person to answer. A held job is not
+    # considered by the tick again until somebody does.
+    HOLD = "hold"
 
 
 @dataclass(frozen=True)
@@ -95,11 +105,12 @@ class Moment:
     # Which toolhead each of the file's slots will run on, worked out now rather than when
     # the job was scheduled, because a spool can be changed overnight.
     tool_plan: ToolPlan = ToolPlan(applicable=False)
-    # When the printer's most recent print ended. None when it keeps no record.
-    last_print_ended_at: float | None = None
     # Whether this printer is started by a gcode command rather than by Moonraker's own print
     # start. It decides which filenames are startable, and nothing else here.
     starts_by_gcode: bool = True
+    # Whether a person has just said the bed is clear, in answer to being asked. The promise
+    # made when the job was scheduled is not this: it was about a moment that had not come yet.
+    bed_confirmed: bool = False
 
 
 Rule = Callable[[Moment], Decision | None]
@@ -199,31 +210,26 @@ def _a_print_is_running(moment: Moment) -> Decision | None:
     return Decision(Action.CANCEL, Refusal.PRINTER_BUSY, Said(was, {"file": running}))
 
 
-def _the_bed_was_not_cleared(moment: Moment) -> Decision | None:
-    if moment.printer.print_state not in UNCLEARED_BED_STATES:
-        return None
-    if _the_promise_already_covered_this(moment):
-        return None
-    return Decision(Action.CANCEL, Refusal.BED_NOT_CLEARED, _why_the_bed_is_suspect(moment))
+def _the_bed_may_be_occupied(moment: Moment) -> Decision | None:
+    """Hold the job while the printer shows a print that ended and was never dismissed.
 
+    Held, not started and not cancelled. The promise made when the job was scheduled was about
+    the moment it would start, and a printer still showing a finished print at that moment is
+    evidence against it. The scheduler cannot see the bed, so it asks: better not to start a
+    print than to start one onto a part.
 
-def _the_promise_already_covered_this(moment: Moment) -> bool:
-    """Whether the printer was already saying this when the bed was promised clear.
-
-    The promise is made when the job is scheduled, so a state you could see at that moment is
-    one you promised in spite of. Blocking on it anyway means a single cancelled print stops
-    the scheduler forever, because `cancelled` never clears itself. A state that arrived
-    afterwards is a different thing: you could not have known, so it wins.
+    This replaced a rule that let the promise cover any state the person could see when they
+    made it, which existed because `complete` never clears itself and refusing on it could stop
+    the scheduler for good. The dismiss button removed that reason: there is now a one-click way
+    out from the page, so the scheduler no longer has to take the promise on trust.
     """
-    ended = moment.last_print_ended_at
-    return ended is not None and moment.job.created_at > 0 and ended <= moment.job.created_at
-
-
-def _why_the_bed_is_suspect(moment: Moment) -> Said:
-    state = moment.printer.print_state
-    if moment.last_print_ended_at is None or moment.job.created_at <= 0:
-        return Said(Message.BED_STATE_WITH_NO_RECORD, {"state": state})
-    return Said(Message.BED_PRINT_AFTER_THE_PROMISE, {"state": state})
+    if moment.printer.print_state not in UNCLEARED_BED_STATES or moment.bed_confirmed:
+        return None
+    return Decision(
+        Action.HOLD,
+        None,
+        Said(Message.HELD_FOR_THE_BED, {"state": moment.printer.print_state}),
+    )
 
 
 def _the_printer_is_in_error(moment: Moment) -> Decision | None:
@@ -270,7 +276,7 @@ DECISION_RULES: tuple[Rule, ...] = (
     _klipper_is_still_starting,
     _klipper_is_not_ready,
     _a_print_is_running,
-    _the_bed_was_not_cleared,
+    _the_bed_may_be_occupied,
     _the_printer_is_in_error,
     _other_gcode_is_running,
     _the_file_is_gone,
@@ -324,28 +330,84 @@ def _settle_due(
 ) -> dict[str, Job]:
     if not due:
         return {}
-    snapshot, filenames = _with_the_file_listing(printer, seen.snapshot)
     settled: dict[str, Job] = {}
     already_started = False
+    for moment in _moments_for(due, printer, seen, now, tolerance_seconds):
+        job = moment.job
+        decision = ANOTHER_JOB_STARTED if already_started else decide(moment)
+        updated = _carry_out(decision, moment, printer)
+        already_started = already_started or updated.state is JobState.STARTING
+        settled[job.job_id] = updated
+    return settled
+
+
+def _moments_for(
+    jobs: Sequence[Job],
+    printer: Printer,
+    seen: PrinterAsSeen,
+    now: float,
+    tolerance_seconds: float,
+) -> list[Moment]:
+    """Everything the rules look at, for each job, from one look at the printer."""
+    snapshot, filenames = _with_the_file_listing(printer, seen.snapshot)
     loaded = _loaded_filaments(printer)
-    ended = last_print_ended_at(seen.recent_prints)
     by_gcode = _starts_by_gcode(printer)
-    for job in due:
-        moment = Moment(
+    return [
+        Moment(
             job,
             snapshot,
             filenames,
             now,
             tolerance_seconds,
             _plan_the_toolheads(printer, job, loaded),
-            ended,
             by_gcode,
         )
-        decision = ANOTHER_JOB_STARTED if already_started else decide(moment)
-        updated = _carry_out(decision, moment, printer)
-        already_started = already_started or updated.state is JobState.STARTING
-        settled[job.job_id] = updated
-    return settled
+        for job in jobs
+    ]
+
+
+# What somebody pressing "start it now" is told about and left waiting over, rather than having
+# the job cancelled under them. Every one of these passes: a printer that comes back, a Klipper
+# that is restarted, somebody else's print that finishes. The tick cancels on some of them
+# because nobody is there to try again; here somebody is, and has just asked.
+WORTH_TRYING_AGAIN = frozenset({
+    Refusal.PRINTER_BUSY,
+    Refusal.PRINTER_UNREACHABLE,
+    Refusal.KLIPPER_NOT_READY,
+    Refusal.PRINTER_IN_ERROR,
+})
+
+
+def start_now(
+    job: Job, printer: Printer, now: float, tolerance_seconds: float
+) -> tuple[Job, Said | None]:
+    """Start a job held for the bed, on the word of the person who just said the bed is clear.
+
+    Now, however late, because a person pressing a button labelled "start it now" is the one
+    case where starting late is exactly what was asked for. The rule against starting late is
+    about the machine deciding that on its own, unattended.
+
+    Every other rule still applies, checked afresh. A condition that passes leaves the job
+    exactly as it was, still held, and returns why, so the person can try again; a condition
+    that never will, a file that has gone or a material nothing holds, settles the job the same
+    way a normal start would. There is no separate dismiss: starting a print clears the finished
+    one by itself, because the start command resets the file before loading the new one.
+    """
+    asked = replace(
+        job,
+        start_at=now,
+        hold=None,
+        held_at=None,
+        attempts=job.attempts + (Attempt(now, Said(Message.CONFIRMED_START_NOW).in_english()),),
+    )
+    seen = PrinterAsSeen(printer.snapshot(), _recent_prints(printer))
+    moment = replace(
+        _moments_for([asked], printer, seen, now, tolerance_seconds)[0], bed_confirmed=True
+    )
+    decision = decide(moment)
+    if decision.action is Action.WAIT or decision.refusal in WORTH_TRYING_AGAIN:
+        return job, Said(Message.NOT_STARTED_NOW, {"why": decision.said})
+    return _carry_out(decision, moment, printer), None
 
 
 def _starts_by_gcode(printer: Printer) -> bool:
@@ -445,6 +507,8 @@ def _with_the_file_listing(
 def _carry_out(decision: Decision, moment: Moment, printer: Printer) -> Job:
     if decision.action is Action.WAIT:
         return _waited(moment.job, moment.now, decision)
+    if decision.action is Action.HOLD:
+        return _held_for_the_bed(moment.job, moment.now, decision)
     if decision.action is Action.CANCEL:
         return _cancelled(moment.job, moment.now, decision)
     return _started(moment, printer)
@@ -452,6 +516,15 @@ def _carry_out(decision: Decision, moment: Moment, printer: Printer) -> Job:
 
 def _waited(job: Job, now: float, decision: Decision) -> Job:
     return replace(job, attempts=job.attempts + (Attempt(now, decision.detail),))
+
+
+def _held_for_the_bed(job: Job, now: float, decision: Decision) -> Job:
+    return replace(
+        job,
+        hold=HoldReason.BED_NOT_CONFIRMED,
+        held_at=now,
+        attempts=job.attempts + (Attempt(now, decision.detail),),
+    )
 
 
 def _cancelled(job: Job, now: float, decision: Decision) -> Job:
@@ -532,8 +605,9 @@ def cancel_by_hand(job: Job, now: float) -> Job:
     """Cancel a pending job because the person asked, which is not a refusal by the printer.
 
     The hold goes with it. A held job is a promise waiting on a person, and cancelling it *is*
-    that person answering, so a settled job carrying `held` would be a row claiming to wait for
-    a decision that has already been made. This is the only way a held job can settle: the tick
+    that person answering, so a settled job carrying a hold would be a row claiming to wait for
+    a decision that has already been made. This and `start_now` are the only ways a held job can
+    settle: the tick
     refuses to consider one at all.
     """
     return replace(
@@ -542,5 +616,6 @@ def cancel_by_hand(job: Job, now: float) -> Job:
             now,
             Decision(Action.CANCEL, Refusal.CANCELLED_BY_YOU, Said(Message.CANCELLED_BY_YOU)),
         ),
-        held=False,
+        hold=None,
+        held_at=None,
     )

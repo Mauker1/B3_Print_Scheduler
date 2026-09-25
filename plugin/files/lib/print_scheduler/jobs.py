@@ -65,6 +65,20 @@ class Refusal(str, Enum):
     CANCELLED_BY_YOU = "cancelled-by-you"
 
 
+class HoldReason(str, Enum):
+    """Why a waiting job is not being considered, which decides what releases it.
+
+    A hold is a question for a person, and the two questions are different. After a long
+    silence the question is whether the schedule as a whole still says what somebody wants, so
+    one answer releases every job held for it. When the printer still shows a finished print the
+    question is whether this bed is clear for this job, so each job has its own answer, and that
+    answer starts it.
+    """
+
+    LONG_SILENCE = "long-silence"
+    BED_NOT_CONFIRMED = "bed-not-confirmed"
+
+
 @dataclass(frozen=True)
 class Attempt:
     """One pass over a job that did not settle it, kept so a retry loop is visible afterwards."""
@@ -114,12 +128,19 @@ class Job:
     # deliberately the only thing we keep about that: the outcome is the printer's claim, so
     # it is looked up when someone asks rather than copied into our own record.
     printer_job_id: str = ""
-    # Set when the scheduler came back from a long silence and found this job still waiting.
-    # A held job is not considered by the tick at all, not even for lateness: it is a promise
-    # nobody has looked at since before the silence, and the person who made it gets to say
-    # whether it still stands. Cleared for every job at once, by the button on the page.
-    held: bool = False
+    # Why this job is waiting on a person, or None when it is not. A held job is not considered
+    # by the tick at all, not even for lateness: it is a question nobody has answered yet, and
+    # the tick would otherwise answer it on the person's behalf by letting the time run out.
+    hold: HoldReason | None = None
+    # When the hold began, so the page can say what the printer showed and when, even after
+    # the reason has gone away. A job held for the bed does not start by itself once the bed
+    # is dismissed, and a job that does not start with no reason on screen reads as a bug.
+    held_at: float | None = None
     attempts: tuple[Attempt, ...] = field(default_factory=tuple)
+
+    @property
+    def held(self) -> bool:
+        return self.hold is not None
 
     def to_dict(self) -> dict[str, Any]:
         """Render for the schedule file and for the JSON endpoints."""
@@ -141,7 +162,11 @@ class Job:
             "detail_values": self.detail_values,
             "decided_at": self.decided_at,
             "printer_job_id": self.printer_job_id,
+            # Written beside `hold` so that a schedule saved by this version still reads
+            # correctly in 0.3.0, which knew only the flag. Nothing here reads it back.
             "held": self.held,
+            "hold": None if self.hold is None else self.hold.value,
+            "held_at": self.held_at,
             "attempts": [{"at": attempt.at, "detail": attempt.detail} for attempt in self.attempts],
         }
 
@@ -167,12 +192,25 @@ def job_from_dict(payload: dict[str, Any]) -> Job:
         detail_values=dict(payload.get("detail_values") or {}),
         decided_at=payload.get("decided_at"),
         printer_job_id=str(payload.get("printer_job_id", "")),
-        held=bool(payload.get("held", False)),
+        hold=_hold_from(payload),
+        held_at=payload.get("held_at"),
         attempts=tuple(
             Attempt(at=float(entry["at"]), detail=str(entry["detail"]))
             for entry in payload.get("attempts", [])
         ),
     )
+
+
+def _hold_from(payload: dict[str, Any]) -> HoldReason | None:
+    """The hold, including one written before a hold had a reason.
+
+    0.3.0 stored only a flag, and the only thing that could set it was a long silence, so that
+    is what a bare flag means.
+    """
+    stated = payload.get("hold")
+    if stated is not None:
+        return HoldReason(stated)
+    return HoldReason.LONG_SILENCE if payload.get("held") else None
 
 
 def new_job_id() -> str:

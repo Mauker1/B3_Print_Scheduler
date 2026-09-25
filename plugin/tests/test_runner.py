@@ -15,7 +15,9 @@ from __future__ import annotations
 from dataclasses import replace
 
 import print_scheduler
+import pytest
 from print_scheduler import (
+    HoldReason,
     Job,
     JobState,
     LoadedFilament,
@@ -24,6 +26,7 @@ from print_scheduler import (
     Refusal,
     cancel_by_hand,
     run_tick,
+    start_now,
 )
 from printer_stand_in import (
     BENCHY,
@@ -147,16 +150,21 @@ def test_the_busy_reason_says_what_happened_and_stops() -> None:
     assert detail.count(".") == 1  # the one in the filename, and no sentence after it
 
 
-def test_an_undismissed_finished_print_means_the_bed_is_presumed_occupied() -> None:
+def test_an_undismissed_finished_print_holds_the_job_for_you() -> None:
+    """Held, not started and not cancelled: the scheduler cannot see the bed, so it asks."""
     printer = StandInPrinter(reports=replace(IDLE, print_state="complete"))
     settled = settle(a_job(), printer)
-    assert settled.refusal is Refusal.BED_NOT_CLEARED
+    assert settled.state is JobState.SCHEDULED
+    assert settled.hold is HoldReason.BED_NOT_CONFIRMED
+    assert settled.held_at == SIX_IN_THE_MORNING
+    assert settled.refusal is None
     assert printer.started == []
 
 
-def test_an_undismissed_cancelled_print_means_the_same() -> None:
+def test_an_undismissed_cancelled_print_holds_it_the_same_way() -> None:
     printer = StandInPrinter(reports=replace(IDLE, print_state="cancelled"))
-    assert settle(a_job(), printer).refusal is Refusal.BED_NOT_CLEARED
+    assert settle(a_job(), printer).hold is HoldReason.BED_NOT_CONFIRMED
+    assert printer.started == []
 
 
 LAST_NIGHT = SIX_IN_THE_MORNING - 8 * 60 * ONE_MINUTE
@@ -172,42 +180,105 @@ def a_print_that_ended(status: str, ended_at: float) -> PrintRecord:
     )
 
 
-def test_a_cancelled_print_from_before_you_promised_does_not_block() -> None:
-    # `cancelled` never clears itself. It sat for forty five minutes with nothing on screen to
-    # dismiss, and would have sat for days. Read as news it stops the scheduler forever.
+@pytest.mark.parametrize(
+    ("status", "ended_at", "promised_at"),
+    [
+        # These three started until 0.4.0: the promise was taken to cover anything the person
+        # could see when they made it. It existed because `complete` never clears itself and
+        # refusing on it could stop the scheduler for good; the dismiss button removed that
+        # reason, so now every one of them asks instead.
+        ("cancelled", LAST_NIGHT, LAST_NIGHT + ONE_MINUTE),
+        ("completed", LAST_NIGHT, LAST_NIGHT + ONE_MINUTE),
+        # These two were cancelled, and are now held.
+        ("cancelled", SIX_IN_THE_MORNING - 10 * ONE_MINUTE, LAST_NIGHT),
+        (None, None, LAST_NIGHT),
+    ],
+)
+def test_whenever_the_print_ended_the_job_waits_for_you(
+    status: str | None, ended_at: float | None, promised_at: float
+) -> None:
     printer = StandInPrinter(
-        reports=replace(IDLE, print_state="cancelled"),
-        remembers=(a_print_that_ended("cancelled", LAST_NIGHT),),
+        reports=replace(IDLE, print_state="cancelled" if status != "completed" else "complete"),
+        remembers=() if status is None or ended_at is None else (
+            a_print_that_ended(status, ended_at),
+        ),
     )
-    settled = settle(a_job(created_at=LAST_NIGHT + ONE_MINUTE), printer)
-    assert settled.state is JobState.STARTING
+    settled = settle(a_job(created_at=promised_at), printer)
+    assert settled.state is JobState.SCHEDULED
+    assert settled.hold is HoldReason.BED_NOT_CONFIRMED
+    assert printer.started == []
 
 
-def test_a_print_cancelled_after_you_promised_does_block() -> None:
-    printer = StandInPrinter(
-        reports=replace(IDLE, print_state="cancelled"),
-        remembers=(a_print_that_ended("cancelled", SIX_IN_THE_MORNING - 10 * ONE_MINUTE),),
-    )
-    settled = settle(a_job(created_at=LAST_NIGHT), printer)
-    assert settled.refusal is Refusal.BED_NOT_CLEARED
-    assert "after you scheduled" in settled.detail
+def test_a_job_held_for_the_bed_is_left_alone_by_every_tick_after() -> None:
+    """However late it gets. It is waiting on a person, and letting the time run out would be
+    the tick answering the question for them."""
+    printer = StandInPrinter(reports=replace(IDLE, print_state="complete"))
+    held = settle(a_job(), printer)
+    printer.reports = IDLE
+    much_later = run_tick([held], printer, SIX_IN_THE_MORNING + TEN_HOURS, FIVE_MINUTES)[0]
+    assert much_later == held
+    assert printer.started == []
 
 
-def test_a_finished_print_from_before_you_promised_does_not_block_either() -> None:
-    printer = StandInPrinter(
-        reports=replace(IDLE, print_state="complete"),
-        remembers=(a_print_that_ended("completed", LAST_NIGHT),),
-    )
-    settled = settle(a_job(created_at=LAST_NIGHT + ONE_MINUTE), printer)
-    assert settled.state is JobState.STARTING
+def test_dismissing_on_the_screen_does_not_start_a_held_job() -> None:
+    """Somebody dismissing a print at seven in the evening is not asking for the morning's job."""
+    printer = StandInPrinter(reports=replace(IDLE, print_state="complete"))
+    held = settle(a_job(), printer)
+    printer.reports = IDLE
+    assert run_tick([held], printer, SIX_IN_THE_MORNING + ONE_MINUTE, FIVE_MINUTES)[0].held
+    assert printer.started == []
 
 
-def test_an_uncleared_bed_with_no_record_of_when_refuses() -> None:
-    # The safe direction, and the message says how to get out of it.
-    printer = StandInPrinter(reports=replace(IDLE, print_state="cancelled"))
-    settled = settle(a_job(created_at=LAST_NIGHT), printer)
-    assert settled.refusal is Refusal.BED_NOT_CLEARED
-    assert "no usable record" in settled.detail
+def a_job_held_for_the_bed() -> Job:
+    return settle(a_job(), StandInPrinter(reports=replace(IDLE, print_state="complete")))
+
+
+def test_start_now_starts_it_however_late() -> None:
+    printer = StandInPrinter(reports=replace(IDLE, print_state="complete"))
+    now = SIX_IN_THE_MORNING + TEN_HOURS
+    started, not_now = start_now(a_job_held_for_the_bed(), printer, now, FIVE_MINUTES)
+    assert not_now is None
+    assert started.state is JobState.STARTING
+    assert started.hold is None
+    assert started.start_at == now
+    assert len(printer.started) == 1
+
+
+def test_start_now_after_a_screen_dismissal_starts_it_too() -> None:
+    printer = StandInPrinter(reports=IDLE)
+    started, not_now = start_now(a_job_held_for_the_bed(), printer, SIX_IN_THE_MORNING, 0.0)
+    assert not_now is None
+    assert started.state is JobState.STARTING
+
+
+@pytest.mark.parametrize(
+    "printer_now",
+    [
+        replace(IDLE, print_state="printing", printing_filename="started-by-hand.gcode"),
+        PrinterSnapshot(reachable=False, klipper_message="connection refused"),
+        replace(IDLE, klipper_state="shutdown", klipper_message="MCU shutdown"),
+        replace(IDLE, other_gcode_running=True),
+    ],
+)
+def test_start_now_leaves_the_job_waiting_when_trying_again_would_work(
+    printer_now: PrinterSnapshot,
+) -> None:
+    """Somebody is there and has just asked. Cancelling their job because another print
+    started a moment ago would be answering them with the tick's rules, not theirs."""
+    held = a_job_held_for_the_bed()
+    printer = StandInPrinter(reports=printer_now)
+    unchanged, not_now = start_now(held, printer, SIX_IN_THE_MORNING, FIVE_MINUTES)
+    assert unchanged == held
+    assert not_now is not None
+    assert printer.started == []
+
+
+def test_start_now_cancels_when_it_never_could_start() -> None:
+    printer = StandInPrinter(reports=IDLE, holds=frozenset())
+    settled, not_now = start_now(a_job_held_for_the_bed(), printer, SIX_IN_THE_MORNING, 0.0)
+    assert not_now is None
+    assert settled.refusal is Refusal.FILE_GONE
+    assert printer.started == []
 
 
 def test_a_printer_in_error_cancels_with_the_printers_own_message() -> None:

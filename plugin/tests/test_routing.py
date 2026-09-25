@@ -21,6 +21,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 from print_scheduler import ScheduleService, ScheduleStore, Settings, build_server
+from print_scheduler.server import POST_ROUTES
 from printer_stand_in import BENCHY, StandInPrinter
 
 SIX_IN_THE_MORNING = 1_758_348_000.0
@@ -202,3 +203,19 @@ def test_a_post_whose_handler_ignores_the_body_does_not_poison_the_connection(
     second = connection.getresponse()
     assert second.status == 200
     connection.close()
+
+
+@pytest.mark.parametrize("path", sorted(POST_ROUTES))
+def test_every_endpoint_that_changes_something_refuses_anything_but_json(
+    served: tuple[str, ScheduleService], path: str
+) -> None:
+    """A plain text POST is what another website can send without the browser asking first.
+
+    Enforced in one place for every route, and tested for every route, because two of them had
+    quietly accepted it: clearing the settled list and releasing held jobs. A route added later
+    is covered by this without anybody remembering to add it.
+    """
+    with pytest.raises(HTTPError) as refused:
+        post(served[0], path, {}, content_type="text/plain")
+    assert refused.value.code == 400
+    assert "application/json" in json.loads(refused.value.read())["error"]

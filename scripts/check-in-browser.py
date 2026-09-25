@@ -41,6 +41,7 @@ import threading  # noqa: E402
 import time  # noqa: E402
 from collections.abc import Iterator  # noqa: E402
 from contextlib import contextmanager  # noqa: E402
+from dataclasses import replace  # noqa: E402
 from pathlib import Path  # noqa: E402
 from typing import Any  # noqa: E402
 
@@ -76,6 +77,8 @@ from printer_stand_in import (  # noqa: E402
     BENCHY,
     CHINESE_NAME,
     FOUR_TOOL_METADATA,
+    IDLE,
+    PRINTING_OURS,
     TOO_MUCH_ASA_METADATA,
     WHITE_PLA_METADATA,
     StandInPrinter,
@@ -598,6 +601,145 @@ def check_what_a_long_silence_looks_like(scratch: Path, printer: StandInPrinter)
         server.shutdown()
 
 
+def check_dismissing_a_finished_print(scratch: Path, printer: StandInPrinter) -> None:
+    """The page offers to clear a finished print, and asks the printer again before it does.
+
+    The command behind the button stops a running print. So the first thing tested is the race:
+    the button is on screen, a print starts from the touchscreen, and then the button is pressed.
+    """
+    print("\nDismissing a finished print")
+    printer.reports = A_FINISHED_PRINT
+    base_url, server, _service = serve(scratch, printer)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page()
+            watch_for_complaints(page)
+            page.goto(base_url)
+            check_a_print_started_since_is_not_stopped(page, printer)
+            check_a_finished_print_is_cleared(page, printer)
+            check_nothing_is_offered_while_printing(page, printer)
+            browser.close()
+    finally:
+        server.shutdown()
+
+
+A_FINISHED_PRINT = replace(IDLE, print_state="complete", printing_filename=BENCHY)
+
+
+def check_a_print_started_since_is_not_stopped(page: Page, printer: StandInPrinter) -> None:
+    page.wait_for_selector("#form-bed-warning button", timeout=PATIENCE_MILLISECONDS)
+    warning = text_of(page, "#form-bed-warning")
+    check("the form warns that the printer shows a finished print",
+          "still shows a finished print" in warning, True)
+    check("and offers to clear it right there", "I've cleared the bed" in warning, True)
+    check("nothing is offered at the top any more", page.query_selector("#dismiss"), None)
+    # Somebody starts a print from the touchscreen while the page still shows the offer.
+    printer.reports = PRINTING_OURS
+    with a_refusal_we_asked_for("400 (Bad Request)"):
+        page.click("#form-bed-warning button")
+        page.wait_for_selector("#form-bed-warning .stop", timeout=PATIENCE_MILLISECONDS)
+    check("a print started since the page looked is not stopped", printer.dismissed, 0)
+    check("and the page says why nothing happened",
+          "nothing to dismiss" in text_of(page, "#form-bed-warning"), True)
+
+
+def check_a_finished_print_is_cleared(page: Page, printer: StandInPrinter) -> None:
+    printer.reports = A_FINISHED_PRINT
+    page.reload()
+    page.wait_for_selector("#form-bed-warning button", timeout=PATIENCE_MILLISECONDS)
+    page.click("#form-bed-warning button")
+    page.wait_for_selector(
+        "#printer-line:has-text('Idle and ready')", timeout=PATIENCE_MILLISECONDS
+    )
+    check("a finished print is cleared once", printer.dismissed, 1)
+    check("the line says the printer is idle again",
+          "Idle and ready" in text_of(page, "#printer-line"), True)
+    check("and the warning goes with it", text_of(page, "#form-bed-warning"), "")
+
+
+def check_nothing_is_offered_while_printing(page: Page, printer: StandInPrinter) -> None:
+    printer.reports = PRINTING_OURS
+    page.reload()
+    page.wait_for_selector("#printer-line:has-text('Printing')", timeout=PATIENCE_MILLISECONDS)
+    check("nothing is offered while a print runs", text_of(page, "#form-bed-warning"), "")
+    check("and nothing more was sent", printer.dismissed, 1)
+
+
+def check_a_job_waiting_for_the_bed(scratch: Path, printer: StandInPrinter) -> None:
+    """A job comes due over a finished print: held, asked about on its own row, started by hand.
+
+    Every branch of the answer in one journey: the printer still showing the print, the print
+    dismissed on the screen without anything starting, a start refused while something else
+    prints, and finally a start that goes.
+    """
+    print("\nA job waiting for the bed")
+    printer.reports = A_FINISHED_PRINT
+    ScheduleStore(scratch / "jobs.json").save([
+        Job(job_id="due-now", filename=BENCHY, start_at=time.time() - 30,
+            created_at=time.time() - 3600, bed_acknowledged=True)
+    ])
+    base_url, server, service = serve(scratch, printer)
+    service.tick(time.time())
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page()
+            watch_for_complaints(page)
+            page.goto(base_url)
+            check_the_row_asks_about_the_bed(page, printer)
+            check_a_screen_dismissal_starts_nothing(page, printer)
+            check_start_now_is_refused_while_something_prints(page, printer)
+            check_start_now_starts_it(page, printer)
+            browser.close()
+    finally:
+        server.shutdown()
+
+
+def check_the_row_asks_about_the_bed(page: Page, printer: StandInPrinter) -> None:
+    page.wait_for_selector("#pending .job .warn button", timeout=PATIENCE_MILLISECONDS)
+    row = text_of(page, "#pending")
+    check("the job was held, not started", printer.started, [])
+    check("its row says the printer still shows a finished print",
+          "the printer still shows a finished print" in row, True)
+    check("and offers to start it once the bed is cleared",
+          "I've cleared the bed, start it now" in row, True)
+    check("the long silence banner stays out of it", text_of(page, "#held-notice"), "")
+
+
+def check_a_screen_dismissal_starts_nothing(page: Page, printer: StandInPrinter) -> None:
+    printer.reports = IDLE
+    page.reload()
+    page.wait_for_selector("#pending .job:has-text('dismissed since')",
+                           timeout=PATIENCE_MILLISECONDS)
+    row = text_of(page, "#pending")
+    check("dismissing on the screen starts nothing", printer.started, [])
+    check("and the row still says why it did not start", "dismissed since" in row, True)
+    check("offering to start it on your word", "The bed is clear, start it now" in row, True)
+
+
+def check_start_now_is_refused_while_something_prints(
+    page: Page, printer: StandInPrinter
+) -> None:
+    printer.reports = replace(IDLE, print_state="printing", printing_filename="by-hand.gcode")
+    with a_refusal_we_asked_for("400 (Bad Request)"):
+        page.click("#pending .job .warn button")
+        page.wait_for_selector("#form-problem .stop", timeout=PATIENCE_MILLISECONDS)
+    check("nothing starts over somebody else's print", printer.started, [])
+    check("the page says so, naming it", "by-hand.gcode" in text_of(page, "#form-problem"), True)
+    check("and the job is still waiting",
+          page.query_selector("#pending .job .warn button") is not None, True)
+
+
+def check_start_now_starts_it(page: Page, printer: StandInPrinter) -> None:
+    printer.reports = IDLE
+    page.click("#pending .job .warn button")
+    page.wait_for_selector("#pending .job:has-text('Starting now')", timeout=PATIENCE_MILLISECONDS)
+    check("start it now starts it", len(printer.started), 1)
+    check("and the row stops asking",
+          page.query_selector("#pending .job .warn button") is None, True)
+
+
 # A phone held upright, which is where the longest strings have the least room. Portuguese runs
 # 15 to 30 percent longer than English, so the point of this size is not the words but whether
 # anything spills off the side once they are longer.
@@ -744,6 +886,10 @@ def main() -> int:
         check_a_setting_the_plugin_cannot_use(Path(scratch), printer)
     with tempfile.TemporaryDirectory() as scratch:
         check_the_page_in_another_language(Path(scratch), a_printer_with_a_white_pla_file())
+    with tempfile.TemporaryDirectory() as scratch:
+        check_dismissing_a_finished_print(Path(scratch), a_printer_with_a_white_pla_file())
+    with tempfile.TemporaryDirectory() as scratch:
+        check_a_job_waiting_for_the_bed(Path(scratch), a_printer_with_a_white_pla_file())
     return report()
 
 
