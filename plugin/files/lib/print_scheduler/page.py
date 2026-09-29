@@ -110,6 +110,10 @@ button.danger { border-color: #c0392b; color: #c0392b; }
 .job-title { font-weight: 600; overflow-wrap: anywhere; }
 .job-actions { margin-top: 0.35rem; display: flex; gap: 0.3rem; flex-wrap: wrap; }
 .tools { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.5rem 0; }
+/* One slot to a line once each has a toolhead to choose, because a row of selects that wraps
+   wherever it likes is hard to read as a map. */
+.tools.choosing { flex-direction: column; gap: 0.35rem; }
+.tool .picker select { padding: 0.15rem 1.9rem 0.15rem 0.4rem; font-size: 0.85rem; }
 .tool { display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; }
 .swatch { width: 0.95rem; height: 0.95rem; border-radius: 50%; border: 1px solid var(--line); }
 .facts { font-size: 0.85rem; color: var(--quiet); }
@@ -297,8 +301,12 @@ var CLOCK_SKEW_TOLERANCE_SECONDS = 120;
 var REFRESH_MILLISECONDS = 10000;
 var FILES_REFRESH_MILLISECONDS = 15000;
 
+// `chosenMap` is null while the scheduler chooses, and slot to toolhead once the person has
+// changed any one of them. `acknowledged` holds the slots the person has agreed may print from
+// a different material, and is never carried into another job: agreeing once is for this one.
 var state = { jobs: [], printer: null, summary: null, editing: null,
-              files: [], chosen: "", armedToClear: false, dismissing: false };
+              files: [], chosen: "", armedToClear: false, dismissing: false,
+              chosenMap: null, acknowledged: {} };
 // A long list is slow to build and pointless to read. Past this, search is the way in.
 var MOST_FILES_TO_DRAW = 40;
 
@@ -544,21 +552,25 @@ function renderFileFacts() {
   var summary = state.summary;
   if (!summary) { replaceChildren(target, []); return; }
 
+  var choosing = aMapApplies(summary);
   var parts = [];
   if (summary.tools.length) {
-    var tools = element("div", "tools");
+    var tools = element("div", choosing ? "tools choosing" : "tools");
     summary.tools.forEach(function (tool) {
       var entry = element("div", "tool");
       var swatch = element("span", "swatch");
       if (tool.colour) { swatch.style.background = tool.colour; }
       entry.appendChild(swatch);
-      entry.appendChild(element("span", null, describeSlot(tool, summary.plan)));
+      // With a picker beside it the line names no toolhead: the picker already does.
+      entry.appendChild(element("span", null, describeSlot(tool, choosing ? null : summary.plan)));
+      if (choosing) { entry.appendChild(toolheadPicker(tool)); }
       tools.appendChild(entry);
     });
     parts.push(tools);
   } else {
     parts.push(element("p", "quiet", t("page.no-material-stated")));
   }
+  if (choosing) { parts = parts.concat(aboutTheChosenMap()); }
 
   var facts = [];
   var duration = howLong(summary.estimated_seconds);
@@ -580,14 +592,181 @@ function renderFileFacts() {
     parts.push(element("p", "quiet", t("page.no-toolhead-tracking")));
   }
 
+  // The scheduler's own reasons only while the scheduler is choosing. Once the person has
+  // chosen, its map is not the one that will run, and its complaints about it are beside the
+  // point.
+  if (state.chosenMap) {
+    replaceChildren(target, parts);
+    return;
+  }
   if (planProblem(summary.plan)) {
     parts.push(element("p", "stop", planProblem(summary.plan)));
+    if (choosing) { parts.push(element("p", "quiet", t("page.choose-them-yourself"))); }
   } else if (mismatchedColours(summary.plan).length) {
     parts.push(element("p", "warn", t("page.colour-mismatch", {
       slots: joinedWith("list.separator-clauses", mismatchedColours(summary.plan))
     })));
   }
   replaceChildren(target, parts);
+}
+
+// ---- choosing the toolheads yourself ----------------------------------------------------------
+//
+// One map at a time, never a mixture. Changing any slot makes the whole map the person's,
+// starting from what the scheduler had chosen, because a scheduler left to fill in the rest
+// would quietly rearrange the other slots around the one somebody moved.
+
+function aMapApplies(summary) {
+  return Boolean(summary && summary.plan && summary.plan.applicable && summary.tools.length &&
+    summary.loaded && summary.loaded.length);
+}
+
+function toolheadFor(slot) {
+  if (state.chosenMap) {
+    return Object.prototype.hasOwnProperty.call(state.chosenMap, slot)
+      ? state.chosenMap[slot] : null;
+  }
+  var assignment = assignmentFor(state.summary && state.summary.plan, slot);
+  return assignment ? assignment.toolhead : null;
+}
+
+function loadedToolhead(index) {
+  var loaded = (state.summary && state.summary.loaded) || [];
+  for (var position = 0; position < loaded.length; position += 1) {
+    if (loaded[position].index === index) { return loaded[position]; }
+  }
+  return null;
+}
+
+function describeToolhead(one) {
+  if (!one.present) { return t("page.toolhead-option-empty", { index: one.index }); }
+  var values = { index: one.index, material: one.filament_type || t("page.filament"),
+                 colour: one.colour };
+  return one.colour ? t("page.toolhead-option", values)
+                    : t("page.toolhead-option-without-colour", values);
+}
+
+function toolheadPicker(tool) {
+  var select = document.createElement("select");
+  select.setAttribute("aria-label", t("page.toolhead-for-slot", { slot: tool.slot }));
+  var current = toolheadFor(tool.slot);
+  if (current === null) { select.appendChild(anOption("", t("page.choose-a-toolhead"))); }
+  state.summary.loaded.forEach(function (one) {
+    var option = anOption(String(one.index), describeToolhead(one));
+    // Shown, so the list reads as the printer does, and not choosable: nothing would come out.
+    option.disabled = !one.present;
+    select.appendChild(option);
+  });
+  select.value = current === null ? "" : String(current);
+  select.addEventListener("change", function () { chooseToolhead(tool.slot, select.value); });
+  var wrapper = element("span", "picker");
+  wrapper.appendChild(select);
+  return wrapper;
+}
+
+function chooseToolhead(slot, value) {
+  if (!state.chosenMap) { state.chosenMap = theSchedulersMap(); }
+  if (value === "") { delete state.chosenMap[slot]; }
+  else { state.chosenMap[slot] = Number(value); }
+  // Agreement was given for the toolhead that was on screen, not for whichever replaced it.
+  delete state.acknowledged[slot];
+  renderFileFacts();
+  refreshSaveButton();
+}
+
+function theSchedulersMap() {
+  var map = {};
+  var plan = state.summary && state.summary.plan;
+  ((plan && plan.assignments) || []).forEach(function (one) { map[one.slot] = one.toolhead; });
+  return map;
+}
+
+function backToAutomatic() {
+  state.chosenMap = null;
+  state.acknowledged = {};
+  renderFileFacts();
+  refreshSaveButton();
+}
+
+function sameMaterial(wanted, loaded) {
+  return Boolean(wanted) && wanted.trim().toUpperCase() === (loaded || "").trim().toUpperCase();
+}
+
+// Only a person's map can put a slot on another material; the scheduler never does.
+function slotsOnADifferentMaterial() {
+  if (!state.chosenMap || !state.summary) { return []; }
+  return state.summary.tools.filter(function (tool) {
+    var one = loadedToolhead(toolheadFor(tool.slot));
+    return Boolean(one && tool.filament_type) &&
+      !sameMaterial(tool.filament_type, one.filament_type);
+  });
+}
+
+function slotsWithoutAToolhead() {
+  if (!state.chosenMap || !state.summary) { return []; }
+  return state.summary.tools.filter(function (tool) { return toolheadFor(tool.slot) === null; });
+}
+
+function slotsSharingAToolhead() {
+  var byToolhead = {};
+  state.summary.tools.forEach(function (tool) {
+    var toolhead = toolheadFor(tool.slot);
+    if (toolhead === null) { return; }
+    (byToolhead[toolhead] = byToolhead[toolhead] || []).push(tool.slot);
+  });
+  return Object.keys(byToolhead).filter(function (toolhead) {
+    return byToolhead[toolhead].length > 1;
+  }).map(function (toolhead) {
+    return t("page.slots-share-a-toolhead", {
+      slots: joinedWith("list.separator", byToolhead[toolhead]), toolhead: toolhead
+    });
+  });
+}
+
+function aboutTheChosenMap() {
+  var parts = [];
+  if (state.chosenMap) {
+    var chosen = element("p", "quiet", t("page.you-chose-the-toolheads"));
+    chosen.appendChild(document.createTextNode(" "));
+    chosen.appendChild(actionButton(t("page.back-to-automatic"), backToAutomatic));
+    parts.push(chosen);
+  }
+  slotsSharingAToolhead().forEach(function (sentence) {
+    parts.push(element("p", "warn", sentence));
+  });
+  slotsOnADifferentMaterial().forEach(function (tool) { parts.push(materialAgreement(tool)); });
+  return parts;
+}
+
+// Per slot, naming both materials, because agreeing to print PLA from the ASA toolhead is not
+// agreeing to anything else, and a single box for the whole map would read as that.
+function materialAgreement(tool) {
+  var toolhead = toolheadFor(tool.slot);
+  var id = "different-material-" + tool.slot;
+  var agreement = checkbox(id, t("page.different-material", {
+    slot: tool.slot, wanted: tool.filament_type, toolhead: toolhead,
+    loaded: loadedToolhead(toolhead).filament_type || t("page.filament")
+  }), Boolean(state.acknowledged[tool.slot]));
+  agreement.className = "check warn";
+  agreement.querySelector("input").addEventListener("change", function (event) {
+    if (event.target.checked) { state.acknowledged[tool.slot] = true; }
+    else { delete state.acknowledged[tool.slot]; }
+    refreshSaveButton();
+  });
+  return agreement;
+}
+
+function chosenPairs() {
+  if (!state.chosenMap) { return null; }
+  return Object.keys(state.chosenMap).map(Number).sort(function (a, b) { return a - b; })
+    .map(function (slot) { return [slot, state.chosenMap[slot]]; });
+}
+
+function mapFromPairs(pairs) {
+  if (!pairs) { return null; }
+  var map = {};
+  pairs.forEach(function (pair) { map[pair[0]] = pair[1]; });
+  return map;
 }
 
 // Why no toolhead will do, in the reader's language. The English sentence comes with it and is
@@ -635,7 +814,7 @@ function preferenceValue(id) {
 function jobHeadline(job) {
   // A held job starts when somebody answers, not at its time, so "Starts" would be a promise the
   // row cannot keep. Its projections are left out by the service for the same reason.
-  if (job.state === "scheduled" && job.hold) {
+  if (job.state === "scheduled" && job.hold_reason) {
     var due = { when: whenLocal(job.start_at) };
     return job.start_at <= Date.now() / 1000 ? t("page.was-due-held", due)
                                             : t("page.due-held", due);
@@ -663,6 +842,7 @@ function describeChoices(job) {
   else if (job.level_bed === false) { parts.push(t("page.no-levelling")); }
   if (job.record_timelapse === true) { parts.push(t("page.timelapse")); }
   else if (job.record_timelapse === false) { parts.push(t("page.no-timelapse")); }
+  if (job.toolheads_chosen) { parts.push(t("page.toolheads-chosen-by-you")); }
   return parts.length ? joinedWith("list.separator", parts) : null;
 }
 
@@ -711,14 +891,18 @@ function renderJob(job) {
   // Only a job that is still scheduled can be waiting on you. A settled row carrying the flag
   // is either history from before it was cleared at cancellation, or a bug; either way saying
   // "waiting for your confirmation" about a job that already ran is worse than saying nothing.
-  if (job.hold === "long-silence" && job.state === "scheduled") {
+  if (job.hold_reason === "long-silence" && job.state === "scheduled") {
     // Short on purpose. The banner above the list has already said that nothing starts until
     // you confirm; this marker exists for a list long enough that the banner has scrolled away,
     // and saying it twice in three lines is how a warning stops being read.
     body.appendChild(element("p", "warn", t("page.waiting-for-your-confirmation")));
   }
-  if (job.hold === "bed-not-confirmed" && job.state === "scheduled") {
+  if (job.hold_reason === "bed-not-confirmed" && job.state === "scheduled") {
     body.appendChild(heldForTheBed(job));
+  }
+  if ((job.hold_reason === "toolheads-changed" || job.hold_reason === "map-not-confirmed") &&
+      job.state === "scheduled") {
+    body.appendChild(heldForTheToolheads(job));
   }
   if (job.overlaps_with) {
     body.appendChild(element("p", "warn", t("page.overlaps-with-an-earlier-job")));
@@ -762,6 +946,58 @@ function heldForTheBed(job) {
     stillShowing ? t("page.cleared-start-now") : t("page.bed-clear-start-now"),
     function () { startNow(job); }));
   return held;
+}
+
+// What changed and what would work instead, on the row, with the one button that accepts it.
+// The map offered is the scheduler's own against what is loaded now. Somebody who wants a
+// different one has Edit, which asks for the whole map again.
+function heldForTheToolheads(job) {
+  var changed = job.hold_reason === "toolheads-changed";
+  var held = element("div", "warn");
+  held.appendChild(element("p", null, changed ? t("page.held-for-the-toolheads")
+                                              : t("page.held-for-the-map")));
+  if (changed && whatChanged(job)) { held.appendChild(element("p", "quiet", whatChanged(job))); }
+  var offered = job.toolheads_proposal;
+  if (offered && offered.acceptable) {
+    held.appendChild(element("p", null,
+      t("page.it-would-print", { mapping: describeOffer(offered) })));
+    var late = job.start_at <= Date.now() / 1000;
+    var label;
+    if (changed) { label = late ? t("page.use-this-map-start-now") : t("page.use-this-map"); }
+    else { label = late ? t("page.map-is-right-start-now") : t("page.map-is-right"); }
+    held.appendChild(actionButton(label, function () { acceptTheMap(job, offered); }));
+  } else if (offered) {
+    held.appendChild(element("p", "stop", planProblem(offered)));
+    held.appendChild(element("p", "quiet", t("page.edit-to-choose-the-toolheads")));
+  }
+  return held;
+}
+
+function whatChanged(job) {
+  if (job.hold_detail_key === "detail.toolheads-changed") {
+    return t("page.what-changed", {
+      changes: joinedWith("list.separator-clauses", job.hold_detail_values.changes || [])
+    });
+  }
+  return job.hold_detail_key ? t(job.hold_detail_key, job.hold_detail_values) : "";
+}
+
+function describeOffer(offered) {
+  return joinedWith("list.separator-clauses", offered.assignments.map(function (one) {
+    var values = { slot: one.slot, toolhead: one.toolhead, material: one.filament_type,
+                   colour: one.loaded_colour };
+    return one.loaded_colour ? t("page.proposal-slot", values)
+                             : t("page.proposal-slot-without-colour", values);
+  }));
+}
+
+function acceptTheMap(job, offered) {
+  postJson("./jobs/accept-toolheads", { job_id: job.job_id, toolheads: offered.toolheads })
+    .then(function () { return Promise.all([loadJobs(), loadPrinter()]); })
+    .catch(function (problem) {
+      showProblem(document.getElementById("form-problem"), problem.message);
+      return loadJobs();
+    });
 }
 
 function startNow(job) {
@@ -808,7 +1044,7 @@ function renderJobs() {
 
   // Only the long silence belongs in the banner. A job waiting for the bed asks its own
   // question on its own row, and "the scheduler was not running" would be untrue about it.
-  renderHeldNotice(pending.filter(function (job) { return job.hold === "long-silence"; }));
+  renderHeldNotice(pending.filter(function (job) { return job.hold_reason === "long-silence"; }));
   replaceChildren(document.getElementById("pending"),
     pending.length ? pending.map(renderJob)
                    : [element("p", "quiet", t("page.nothing-scheduled"))]);
@@ -824,27 +1060,34 @@ function refreshSaveButton() {
   var chosen = state.chosen;
   var when = document.getElementById("start-at").value;
   var acknowledged = document.getElementById("bed-clear").checked;
-  // The one thing that makes a file unschedulable is that its slots cannot be given
-  // toolheads. The service refuses it too; this is so the button says so first.
-  var unplannable = Boolean(state.summary && planProblem(state.summary.plan));
-  document.getElementById("save").disabled =
-    !chosen || !when || !acknowledged || Boolean(unplannable);
-  sayWhyTheButtonIsOff(chosen, when, acknowledged, unplannable);
+  // The scheduler's own map failing makes a file unschedulable only while the scheduler is
+  // choosing. The service refuses it too; this is so the button says so first.
+  var unplannable = Boolean(state.summary && !state.chosenMap && planProblem(state.summary.plan));
+  var missing = [];
+  if (!chosen) { missing.push(t("page.a-file")); }
+  if (!when) { missing.push(t("page.a-time")); }
+  if (!acknowledged) { missing.push(t("page.your-promise-about-the-bed")); }
+  slotsWithoutAToolhead().forEach(function (tool) {
+    missing.push(t("page.a-toolhead-for-slot", { slot: tool.slot }));
+  });
+  slotsOnADifferentMaterial().forEach(function (tool) {
+    if (!state.acknowledged[tool.slot]) {
+      missing.push(t("page.your-word-on-slot", { slot: tool.slot }));
+    }
+  });
+  document.getElementById("save").disabled = unplannable || missing.length > 0;
+  sayWhyTheButtonIsOff(missing, unplannable);
 }
 
 // A button that is disabled and silent about it is a puzzle. This one had four separate
 // reasons to be off and named none of them, so the answer was to go and read the source.
-function sayWhyTheButtonIsOff(chosen, when, acknowledged, unplannable) {
+function sayWhyTheButtonIsOff(missing, unplannable) {
   var target = document.getElementById("save-blocked");
   if (unplannable) {
     // Already spelled out in full above the button, so this points rather than repeats.
     target.textContent = t("page.cannot-be-scheduled-see-above");
     return;
   }
-  var missing = [];
-  if (!chosen) { missing.push(t("page.a-file")); }
-  if (!when) { missing.push(t("page.a-time")); }
-  if (!acknowledged) { missing.push(t("page.your-promise-about-the-bed")); }
   target.textContent = missing.length ? t("page.still-needed", { things: inPlainList(missing) })
                                       : "";
 }
@@ -892,6 +1135,10 @@ function fillForm(job, keepTime) {
   // say so. "Schedule another like this" has the same duty, and a stronger claim to it.
   setPreference("level-bed", job.level_bed);
   setPreference("record-timelapse", job.record_timelapse);
+  // The map carries over like the rest, and the agreement to a different material does not:
+  // like the bed, it was given about a particular moment.
+  state.chosenMap = mapFromPairs(job.toolheads_chosen);
+  state.acknowledged = {};
   loadSummary(job.filename);
   refreshSaveButton();
   document.getElementById("form-heading").scrollIntoView({ block: "start" });
@@ -927,7 +1174,9 @@ function save() {
     timezone_name: Intl.DateTimeFormat().resolvedOptions().timeZone,
     bed_acknowledged: document.getElementById("bed-clear").checked,
     level_bed: preferenceValue("level-bed"),
-    record_timelapse: preferenceValue("record-timelapse")
+    record_timelapse: preferenceValue("record-timelapse"),
+    toolheads_chosen: chosenPairs(),
+    materials_acknowledged: Object.keys(state.acknowledged).map(Number)
   };
   if (state.editing) { body.job_id = state.editing; }
   var path = state.editing ? "./jobs/update" : "./jobs";
@@ -937,6 +1186,9 @@ function save() {
     stopEditing();
     document.getElementById("start-at").value = "";
     document.getElementById("bed-clear").checked = false;
+    state.chosenMap = null;
+    state.acknowledged = {};
+    renderFileFacts();
     refreshSaveButton();
     return loadJobs();
   }).catch(function (problem) {
@@ -1159,6 +1411,9 @@ function renderFiles() {
 
 function chooseFile(filename) {
   state.chosen = filename;
+  // A map is a map of one file's slots, so a different file starts from the scheduler's own.
+  state.chosenMap = null;
+  state.acknowledged = {};
   renderFiles();
   loadSummary(filename);
   refreshSaveButton();

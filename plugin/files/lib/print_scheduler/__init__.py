@@ -44,6 +44,7 @@ from print_scheduler.jobs import (
     Job,
     JobState,
     Refusal,
+    SeenToolhead,
     job_from_dict,
     new_job_id,
     reason_filename_cannot_start,
@@ -122,7 +123,10 @@ from print_scheduler.tool_mapping import (
     ToolPlan,
     colour_distance,
     normalise_colour,
+    plan_as_seen,
+    plan_chosen,
     plan_tools,
+    what_was_seen,
 )
 
 __all__ = [
@@ -155,6 +159,7 @@ __all__ = [
     "Printer",
     "PrinterSnapshot",
     "Refusal",
+    "SeenToolhead",
     "ScheduleRejectedError",
     "ScheduleService",
     "ScheduleStore",
@@ -193,7 +198,10 @@ __all__ = [
     "MARK_NO_MORE_OFTEN_THAN_SECONDS",
     "overlapping_job_ids",
     "payload_for",
+    "plan_as_seen",
+    "plan_chosen",
     "plan_tools",
+    "what_was_seen",
     "print_records_from_history",
     "projected_finish",
     "Message",

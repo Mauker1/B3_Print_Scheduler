@@ -172,5 +172,58 @@
   "page.cleared-start-now": "I've cleared the bed, start it now",
   "page.bed-clear-start-now": "The bed is clear, start it now",
   "page.was-due-held": "Was due {when}, held",
-  "page.due-held": "Due {when}, held until you confirm"
+  "page.due-held": "Due {when}, held until you confirm",
+  "detail.toolheads-changed": "Held because the toolheads no longer hold what they held when the map was seen: {changes}",
+  "detail.map-never-confirmed": "Held because it was scheduled before the scheduler recorded which toolhead each slot runs on, so somebody has to confirm the map first",
+  "detail.confirmed-the-map": "You confirmed the toolhead map",
+  "toolhead.map-incomplete": {
+    "one": "The toolheads chosen must name the file's slot {slots}, once",
+    "other": "The toolheads chosen must name each of the file's slots {slots} exactly once"
+  },
+  "toolhead.map-toolhead-unknown": "The printer reports no T{toolhead}",
+  "toolhead.map-toolhead-empty": "T{toolhead} has nothing loaded",
+  "toolhead.now-holds": {
+    "one": "T{toolhead} held {was} for slot {slots} and now holds {now}",
+    "other": "T{toolhead} held {was} for slots {slots} and now holds {now}"
+  },
+  "toolhead.now-empty": {
+    "one": "T{toolhead} held {was} for slot {slots} and is now empty",
+    "other": "T{toolhead} held {was} for slots {slots} and is now empty"
+  },
+  "toolhead.gone": {
+    "one": "T{toolhead} was chosen for slot {slots} and the printer no longer reports it",
+    "other": "T{toolhead} was chosen for slots {slots} and the printer no longer reports it"
+  },
+  "toolhead.slots-changed": "the file's slots changed from {was} to {now}",
+  "toolhead.not-reported-when-scheduled": "When this job was scheduled the printer did not report what each toolhead held, so nobody has seen a map for it",
+  "toolhead.not-reported-now": "The printer does not report what each toolhead holds right now, so the map cannot be checked",
+  "toolhead.filament-with-colour": "{material} #{colour}",
+  "toolhead.unnamed-material": "an unnamed material",
+  "refused.material-not-acknowledged": "Slot {slot} wants {wanted} and T{toolhead} holds {loaded}. Tick the box that says so to print it anyway.",
+  "refused.not-waiting-for-the-toolheads": "This job is not waiting for a toolhead map",
+  "refused.toolheads-changed-again": "What the toolheads hold changed while you were looking, so nothing was changed. Look at the map on the page now and try again.",
+  "page.toolhead-option": "T{index} {material} #{colour}",
+  "page.toolhead-option-without-colour": "T{index} {material}",
+  "page.toolhead-option-empty": "T{index} empty",
+  "page.toolhead-for-slot": "Toolhead for slot {slot}",
+  "page.choose-a-toolhead": "Choose a toolhead",
+  "page.toolheads-chosen-by-you": "toolheads chosen by you",
+  "page.you-chose-the-toolheads": "You chose these toolheads. The scheduler will not change them, and it holds the job if what they hold changes before it starts.",
+  "page.back-to-automatic": "Back to automatic",
+  "page.different-material": "Slot {slot} was sliced for {wanted} and T{toolhead} holds {loaded}. Print it from T{toolhead} anyway, at the temperatures the file was sliced for.",
+  "page.slots-share-a-toolhead": "Slots {slots} print from the same toolhead, T{toolhead}, so they come out in the same filament.",
+  "page.choose-them-yourself": "Or choose a toolhead for each slot yourself, above.",
+  "page.a-toolhead-for-slot": "a toolhead for slot {slot}",
+  "page.your-word-on-slot": "your word on slot {slot}'s material",
+  "page.held-for-the-toolheads": "Waiting for you: the toolheads no longer hold what they held when this job's map was chosen.",
+  "page.held-for-the-map": "Waiting for you: this job was scheduled before the scheduler recorded which toolhead each slot runs on, so nobody has seen its map.",
+  "page.what-changed": "What changed: {changes}.",
+  "page.it-would-print": "With what is loaded now it would print {mapping}.",
+  "page.proposal-slot": "slot {slot} on T{toolhead} ({material} #{colour})",
+  "page.proposal-slot-without-colour": "slot {slot} on T{toolhead} ({material})",
+  "page.use-this-map-start-now": "Start it now with this map",
+  "page.use-this-map": "Use this map",
+  "page.map-is-right-start-now": "This map is right, start it now",
+  "page.map-is-right": "This map is right",
+  "page.edit-to-choose-the-toolheads": "Edit it to choose the toolheads yourself, or cancel it."
 }

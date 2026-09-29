@@ -172,5 +172,58 @@
   "page.cleared-start-now": "Já liberei a mesa, começar agora",
   "page.bed-clear-start-now": "A mesa está livre, começar agora",
   "page.was-due-held": "Prevista para {when}, retida",
-  "page.due-held": "Prevista para {when}, retida até você confirmar"
+  "page.due-held": "Prevista para {when}, retida até você confirmar",
+  "detail.toolheads-changed": "Retida porque os cabeçotes não têm mais o que tinham quando o mapa foi visto: {changes}",
+  "detail.map-never-confirmed": "Retida porque foi agendada antes de o agendador registrar em qual cabeçote cada slot imprime, então alguém precisa confirmar o mapa antes",
+  "detail.confirmed-the-map": "Você confirmou o mapa de cabeçotes",
+  "toolhead.map-incomplete": {
+    "one": "Os cabeçotes escolhidos precisam cobrir o slot {slots} do arquivo, uma vez",
+    "other": "Os cabeçotes escolhidos precisam cobrir cada um dos slots {slots} do arquivo exatamente uma vez"
+  },
+  "toolhead.map-toolhead-unknown": "A impressora não informa nenhum T{toolhead}",
+  "toolhead.map-toolhead-empty": "O T{toolhead} não tem nada carregado",
+  "toolhead.now-holds": {
+    "one": "o T{toolhead} tinha {was} para o slot {slots} e agora tem {now}",
+    "other": "o T{toolhead} tinha {was} para os slots {slots} e agora tem {now}"
+  },
+  "toolhead.now-empty": {
+    "one": "o T{toolhead} tinha {was} para o slot {slots} e agora está vazio",
+    "other": "o T{toolhead} tinha {was} para os slots {slots} e agora está vazio"
+  },
+  "toolhead.gone": {
+    "one": "o T{toolhead} foi escolhido para o slot {slots} e a impressora não o informa mais",
+    "other": "o T{toolhead} foi escolhido para os slots {slots} e a impressora não o informa mais"
+  },
+  "toolhead.slots-changed": "os slots do arquivo mudaram de {was} para {now}",
+  "toolhead.not-reported-when-scheduled": "Quando esta tarefa foi agendada, a impressora não informava o que cada cabeçote tinha, então ninguém viu um mapa para ela",
+  "toolhead.not-reported-now": "A impressora não está informando agora o que cada cabeçote tem, então o mapa não pode ser conferido",
+  "toolhead.filament-with-colour": "{material} #{colour}",
+  "toolhead.unnamed-material": "um material sem nome",
+  "refused.material-not-acknowledged": "O slot {slot} pede {wanted} e o T{toolhead} tem {loaded}. Marque a caixa que diz isso para imprimir mesmo assim.",
+  "refused.not-waiting-for-the-toolheads": "Esta tarefa não está esperando por um mapa de cabeçotes",
+  "refused.toolheads-changed-again": "O que os cabeçotes têm mudou enquanto você olhava, então nada foi alterado. Veja o mapa na página agora e tente de novo.",
+  "page.toolhead-option": "T{index} {material} #{colour}",
+  "page.toolhead-option-without-colour": "T{index} {material}",
+  "page.toolhead-option-empty": "T{index} vazio",
+  "page.toolhead-for-slot": "Cabeçote para o slot {slot}",
+  "page.choose-a-toolhead": "Escolha um cabeçote",
+  "page.toolheads-chosen-by-you": "cabeçotes escolhidos por você",
+  "page.you-chose-the-toolheads": "Você escolheu estes cabeçotes. O agendador não vai mudá-los, e retém a tarefa se o que eles têm mudar antes de ela começar.",
+  "page.back-to-automatic": "Voltar ao automático",
+  "page.different-material": "O slot {slot} foi fatiado para {wanted} e o T{toolhead} tem {loaded}. Imprimir do T{toolhead} mesmo assim, nas temperaturas para as quais o arquivo foi fatiado.",
+  "page.slots-share-a-toolhead": "Os slots {slots} imprimem do mesmo cabeçote, o T{toolhead}, então saem com o mesmo filamento.",
+  "page.choose-them-yourself": "Ou escolha você mesmo um cabeçote para cada slot, acima.",
+  "page.a-toolhead-for-slot": "um cabeçote para o slot {slot}",
+  "page.your-word-on-slot": "sua confirmação sobre o material do slot {slot}",
+  "page.held-for-the-toolheads": "Esperando por você: os cabeçotes não têm mais o que tinham quando o mapa desta tarefa foi escolhido.",
+  "page.held-for-the-map": "Esperando por você: esta tarefa foi agendada antes de o agendador registrar em qual cabeçote cada slot imprime, então ninguém viu o mapa dela.",
+  "page.what-changed": "O que mudou: {changes}.",
+  "page.it-would-print": "Com o que está carregado agora, ela imprimiria {mapping}.",
+  "page.proposal-slot": "slot {slot} no T{toolhead} ({material} #{colour})",
+  "page.proposal-slot-without-colour": "slot {slot} no T{toolhead} ({material})",
+  "page.use-this-map-start-now": "Começar agora com este mapa",
+  "page.use-this-map": "Usar este mapa",
+  "page.map-is-right-start-now": "Este mapa está certo, começar agora",
+  "page.map-is-right": "Este mapa está certo",
+  "page.edit-to-choose-the-toolheads": "Edite para escolher os cabeçotes você mesmo, ou cancele."
 }

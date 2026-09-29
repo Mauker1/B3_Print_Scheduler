@@ -24,19 +24,21 @@ from print_scheduler import (
     PrinterSnapshot,
     PrintRecord,
     Refusal,
+    SeenToolhead,
     cancel_by_hand,
     run_tick,
     start_now,
 )
+from print_scheduler.runner import THE_MAP_IS_RIGHT
 from printer_stand_in import (
     BENCHY,
     CHINESE_NAME,
     IDLE,
     PRINTING_OURS,
-    TOO_MUCH_ASA_METADATA,
     TWO_COLOUR_METADATA,
     WHITE_PLA_METADATA,
     StandInPrinter,
+    seen_on,
 )
 
 SIX_IN_THE_MORNING = 1_758_348_000.0
@@ -51,6 +53,7 @@ def a_job(**overrides: object) -> Job:
         "filename": BENCHY,
         "start_at": SIX_IN_THE_MORNING,
         "bed_acknowledged": True,
+        "toolheads_seen": seen_on(),
     }
     defaults.update(overrides)
     return Job(**defaults)  # type: ignore[arg-type]
@@ -396,26 +399,145 @@ def test_the_start_names_the_toolhead_that_holds_the_right_material() -> None:
     # The regression. Slot 0 of this file wants white PLA, which is on T2. Left to the printer's
     # default it would go to T0, where the ASA is, and that is what happened on hardware.
     printer = StandInPrinter(describes=dict(WHITE_PLA_METADATA))
-    settled = settle(a_job(), printer)
+    settled = settle(a_job(toolheads_seen=seen_on(WHITE_PLA_METADATA)), printer)
     assert settled.state is JobState.STARTING
     assert printer.started == [(BENCHY, None, None, ((0, 2),))]
     assert "T2" in settled.attempts[-1].detail
 
 
-def test_a_material_no_toolhead_holds_cancels_rather_than_printing_into_the_wrong_one() -> None:
+def test_a_material_that_left_the_machine_holds_rather_than_printing_into_the_wrong_one() -> None:
+    # Until 0.5.0 this cancelled. It is held now, for a person, with what changed on the row.
     only_asa = (LoadedFilament(index=0, filament_type="ASA", colour="000000FF", present=True),)
     printer = StandInPrinter(describes=dict(WHITE_PLA_METADATA), loads=only_asa)
-    settled = settle(a_job(), printer)
-    assert settled.state is JobState.CANCELLED
-    assert settled.refusal is Refusal.NO_TOOLHEAD_FOR_THE_MATERIAL
+    settled = settle(a_job(toolheads_seen=seen_on(WHITE_PLA_METADATA)), printer)
+    assert settled.state is JobState.SCHEDULED
+    assert settled.hold is HoldReason.TOOLHEADS_CHANGED
+    assert settled.hold_detail_key == "detail.toolheads-changed"
+    assert "T2" in settled.attempts[-1].detail
     assert printer.started == []
 
 
 def test_a_printer_that_tracks_no_filament_starts_without_a_map() -> None:
     printer = StandInPrinter(loads=())
-    settled = settle(a_job(), printer)
+    settled = settle(a_job(toolheads_seen=()), printer)
     assert settled.state is JobState.STARTING
     assert printer.started == [(BENCHY, None, None, ())]
+
+
+def test_a_job_from_before_maps_starts_as_it_always_did_where_there_is_no_map() -> None:
+    # An Ender: nothing recorded, and nothing to record. Held here would be a question with no
+    # answer, since there is no map to show anybody.
+    printer = StandInPrinter(loads=())
+    settled = settle(a_job(toolheads_seen=None), printer)
+    assert settled.state is JobState.STARTING
+    assert printer.started == [(BENCHY, None, None, ())]
+
+
+def test_a_job_from_before_maps_is_held_where_there_is_a_map_to_confirm() -> None:
+    printer = StandInPrinter()
+    settled = settle(a_job(toolheads_seen=None), printer)
+    assert settled.state is JobState.SCHEDULED
+    assert settled.hold is HoldReason.MAP_NOT_CONFIRMED
+    assert settled.hold_detail_key == "detail.map-never-confirmed"
+    assert printer.started == []
+
+
+def test_a_map_the_printer_can_no_longer_check_is_held() -> None:
+    printer = StandInPrinter(loads=())
+    settled = settle(a_job(), printer)
+    assert settled.hold is HoldReason.TOOLHEADS_CHANGED
+    assert settled.hold_detail_key == "toolhead.not-reported-now"
+    assert printer.started == []
+
+
+def test_a_job_scheduled_while_nothing_was_reported_is_held_once_something_is() -> None:
+    printer = StandInPrinter()
+    settled = settle(a_job(toolheads_seen=()), printer)
+    assert settled.hold is HoldReason.TOOLHEADS_CHANGED
+    assert settled.hold_detail_key == "toolhead.not-reported-when-scheduled"
+    assert printer.started == []
+
+
+def test_a_colour_changed_overnight_holds_rather_than_being_mapped_again() -> None:
+    # T2 held the white the file asked for, and now holds orange PLA. The same material, so
+    # the old rule would have started it on whichever PLA was nearest. Nobody saw that map.
+    swapped = tuple(
+        replace(one, colour="FF8040FF") if one.index == 2 else one  # noqa: PLR2004  T2
+        for one in StandInPrinter().loads
+    )
+    printer = StandInPrinter(describes=dict(WHITE_PLA_METADATA), loads=swapped)
+    settled = settle(a_job(toolheads_seen=seen_on(WHITE_PLA_METADATA)), printer)
+    assert settled.hold is HoldReason.TOOLHEADS_CHANGED
+    changes = settled.hold_detail_values["changes"]
+    assert changes == [{
+        "message": "toolhead.now-holds",
+        "values": {
+            "toolhead": 2,
+            "slots": [0],
+            "count": 1,
+            "was": {"message": "toolhead.filament-with-colour",
+                    "values": {"material": "PLA", "colour": "E2DEDB"}},
+            "now": {"message": "toolhead.filament-with-colour",
+                    "values": {"material": "PLA", "colour": "FF8040"}},
+        },
+    }]
+    assert "T2 held PLA #E2DEDB for slot 0 and now holds PLA #FF8040" in settled.attempts[-1].detail
+    assert printer.started == []
+
+
+def test_an_emptied_toolhead_is_named_as_empty() -> None:
+    emptied = tuple(
+        replace(one, present=False) if one.index == 0 else one for one in StandInPrinter().loads
+    )
+    settled = settle(a_job(), StandInPrinter(loads=emptied))
+    assert "T0 held ASA #000000 for slot 0 and is now empty" in settled.attempts[-1].detail
+
+
+def test_a_file_whose_slots_changed_since_it_was_seen_is_held() -> None:
+    # The same name, sliced again with a second colour.
+    printer = StandInPrinter(describes=dict(TWO_COLOUR_METADATA))
+    settled = settle(a_job(toolheads_seen=seen_on(WHITE_PLA_METADATA)), printer)
+    assert settled.hold is HoldReason.TOOLHEADS_CHANGED
+    assert "the file's slots changed from 0 to 0, 1" in settled.attempts[-1].detail
+
+
+def test_two_slots_on_one_toolhead_are_sent_as_the_person_chose_them() -> None:
+    both_on_t2 = (
+        SeenToolhead(slot=0, toolhead=2, material="PLA", colour="E2DEDB"),
+        SeenToolhead(slot=1, toolhead=2, material="PLA", colour="E2DEDB"),
+    )
+    printer = StandInPrinter(describes=dict(TWO_COLOUR_METADATA))
+    settled = settle(a_job(toolheads_seen=both_on_t2), printer)
+    assert settled.state is JobState.STARTING
+    assert printer.started == [(BENCHY, None, None, ((0, 2), (1, 2)))]
+
+
+def test_a_different_material_somebody_chose_starts_as_chosen() -> None:
+    # Slot 0 wants PLA; the person said T0, which holds ASA, and meant it.
+    on_the_asa = (SeenToolhead(slot=0, toolhead=0, material="ASA", colour="000000"),)
+    printer = StandInPrinter(describes=dict(WHITE_PLA_METADATA))
+    settled = settle(a_job(toolheads_seen=on_the_asa), printer)
+    assert settled.state is JobState.STARTING
+    assert printer.started == [(BENCHY, None, None, ((0, 0),))]
+
+
+def test_start_now_for_the_bed_asks_about_the_toolheads_next_if_they_changed() -> None:
+    """One question at a time: the bed is answered, and the toolheads become the question."""
+    only_pla = (LoadedFilament(index=0, filament_type="PLA", colour="FFFFFFFF", present=True),)
+    printer = StandInPrinter(reports=replace(IDLE, print_state="complete"), loads=only_pla)
+    held_again, not_now = start_now(a_job_held_for_the_bed(), printer, SIX_IN_THE_MORNING, 0.0)
+    assert not_now is None
+    assert held_again.hold is HoldReason.TOOLHEADS_CHANGED
+    assert printer.started == []
+
+
+def test_an_answer_about_the_toolheads_still_asks_about_the_bed() -> None:
+    printer = StandInPrinter(reports=replace(IDLE, print_state="complete"))
+    waiting = replace(a_job(), hold=HoldReason.TOOLHEADS_CHANGED, held_at=SIX_IN_THE_MORNING)
+    held_again, not_now = start_now(waiting, printer, SIX_IN_THE_MORNING, 0.0, THE_MAP_IS_RIGHT)
+    assert not_now is None
+    assert held_again.hold is HoldReason.BED_NOT_CONFIRMED
+    assert printer.started == []
 
 
 def test_a_settled_job_is_not_touched_again() -> None:
@@ -523,6 +645,8 @@ def test_cancelling_by_hand_is_not_a_refusal_by_the_printer() -> None:
 
 def test_every_refusal_reason_is_reachable_from_the_rules_or_by_hand() -> None:
     # A new way to refuse cannot be added without a test and a row in plugin/doc/README.md.
+    # One of the twelve, no-toolhead-for-the-material, is no longer given: since 0.5.0 that
+    # job is held instead. It stays so rows settled with it before then still read.
     assert len(print_scheduler.Refusal) == 12
 
 
@@ -531,19 +655,9 @@ def test_a_two_colour_print_sends_both_pairs_and_neither_is_the_identity() -> No
     # A printer sent no map defaults to slot 0 on T0 and slot 1 on T1, which here is two
     # wrong toolheads rather than one.
     printer = StandInPrinter(describes=dict(TWO_COLOUR_METADATA))
-    settled = settle(a_job(), printer)
+    settled = settle(a_job(toolheads_seen=seen_on(TWO_COLOUR_METADATA)), printer)
     assert settled.state is JobState.STARTING
     assert printer.started == [(BENCHY, None, None, ((0, 2), (1, 3)))]
-
-
-def test_a_multi_tool_job_whose_material_left_the_machine_overnight_is_cancelled() -> None:
-    # Scheduled when three ASA slots had somewhere to go, fired when they do not. The check
-    # that counts is this one, at the moment of starting, not the one at scheduling.
-    printer = StandInPrinter(describes=dict(TOO_MUCH_ASA_METADATA))
-    settled = settle(a_job(), printer)
-    assert settled.state is JobState.CANCELLED
-    assert settled.refusal is Refusal.NO_TOOLHEAD_FOR_THE_MATERIAL
-    assert printer.started == []
 
 
 def test_a_job_seconds_late_says_seconds_rather_than_zero_minutes() -> None:

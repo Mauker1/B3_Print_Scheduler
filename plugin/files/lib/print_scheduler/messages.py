@@ -86,6 +86,9 @@ class Message(str, Enum):
     ACCEPTED_THE_START_WITH_SLOTS = "detail.accepted-the-start-with-slots"
     SLOT_ON_TOOLHEAD = "detail.slot-on-toolhead"
     CANCELLED_BY_YOU = "detail.cancelled-by-you"
+    TOOLHEADS_CHANGED = "detail.toolheads-changed"
+    MAP_NEVER_CONFIRMED = "detail.map-never-confirmed"
+    CONFIRMED_THE_MAP = "detail.confirmed-the-map"
 
     # Why no toolhead will do.
     MATERIAL_UNKNOWN = "toolhead.material-unknown"
@@ -98,6 +101,19 @@ class Message(str, Enum):
     TOOLHEAD_COUNT = "toolhead.count"
     NOTHING_LOADED = "toolhead.nothing"
 
+    # A map somebody chose, and what has changed since somebody saw one.
+    MAP_INCOMPLETE = "toolhead.map-incomplete"
+    MAP_TOOLHEAD_UNKNOWN = "toolhead.map-toolhead-unknown"
+    MAP_TOOLHEAD_EMPTY = "toolhead.map-toolhead-empty"
+    TOOLHEAD_NOW_HOLDS = "toolhead.now-holds"
+    TOOLHEAD_NOW_EMPTY = "toolhead.now-empty"
+    TOOLHEAD_GONE = "toolhead.gone"
+    SLOTS_CHANGED = "toolhead.slots-changed"
+    NOT_REPORTED_WHEN_SCHEDULED = "toolhead.not-reported-when-scheduled"
+    NOT_REPORTED_NOW = "toolhead.not-reported-now"
+    FILAMENT_WITH_COLOUR = "toolhead.filament-with-colour"
+    UNNAMED_MATERIAL = "toolhead.unnamed-material"
+
     # Refused at the moment somebody asked, rather than at six in the morning.
     NO_SUCH_JOB = "refused.no-such-job"
     NOT_SETTLED_YET = "refused.not-settled-yet"
@@ -109,6 +125,9 @@ class Message(str, Enum):
     NOTHING_TO_DISMISS = "refused.nothing-to-dismiss"
     NOT_WAITING_FOR_THE_BED = "refused.not-waiting-for-the-bed"
     NOT_STARTED_NOW = "refused.not-started-now"
+    MATERIAL_NOT_ACKNOWLEDGED = "refused.material-not-acknowledged"
+    NOT_WAITING_FOR_THE_TOOLHEADS = "refused.not-waiting-for-the-toolheads"
+    TOOLHEADS_CHANGED_AGAIN = "refused.toolheads-changed-again"
 
     # A setting that was there and could not be used.
     SETTING_IGNORED = "setting.ignored"

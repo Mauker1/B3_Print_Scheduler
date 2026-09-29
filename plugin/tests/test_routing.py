@@ -219,3 +219,61 @@ def test_every_endpoint_that_changes_something_refuses_anything_but_json(
         post(served[0], path, {}, content_type="text/plain")
     assert refused.value.code == 400
     assert "application/json" in json.loads(refused.value.read())["error"]
+
+
+def test_a_file_summary_says_what_every_toolhead_holds(
+    served: tuple[str, ScheduleService],
+) -> None:
+    """Every toolhead, not only the ones chosen, so the page can offer each of them."""
+    loaded = get(served[0], f"/file?filename={BENCHY}")["loaded"]
+    assert [one["index"] for one in loaded] == [0, 1, 2, 3]
+    assert loaded[2] == {"index": 2, "filament_type": "PLA", "colour": "E2DEDB", "present": True}
+
+
+def test_a_chosen_map_travels_through_the_endpoint(served: tuple[str, ScheduleService]) -> None:
+    created = post(served[0], "/jobs", {
+        "filename": BENCHY, "start_at": FAR_FUTURE, "bed_acknowledged": True,
+        "toolheads_chosen": [[0, 1]], "materials_acknowledged": [0],
+    })
+    assert created["toolheads_chosen"] == [[0, 1]]
+    assert created["toolheads_seen"] == [
+        {"slot": 0, "toolhead": 1, "material": "PLA", "colour": "0A2989"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "chosen",
+    [
+        "T0",
+        [[0]],
+        [[0, "1"]],
+        [[0, -1]],
+        [[0, True]],
+        {"0": 1},
+    ],
+)
+def test_a_map_that_had_to_be_guessed_at_is_a_bad_request(
+    served: tuple[str, ScheduleService], chosen: object
+) -> None:
+    with pytest.raises(HTTPError) as refused:
+        post(served[0], "/jobs", {
+            "filename": BENCHY, "start_at": FAR_FUTURE, "bed_acknowledged": True,
+            "toolheads_chosen": chosen,
+        })
+    assert refused.value.status == 400
+
+
+def test_accepting_a_map_through_the_endpoint(served: tuple[str, ScheduleService]) -> None:
+    base_url, service = served
+    created = post(base_url, "/jobs", {
+        "filename": BENCHY, "start_at": FAR_FUTURE, "bed_acknowledged": True,
+    })
+    with pytest.raises(HTTPError) as refused:
+        post(base_url, "/jobs/accept-toolheads",
+             {"job_id": created["job_id"], "toolheads": [[0, 0]]})
+    assert refused.value.status == 400
+    assert json.loads(refused.value.read())["error_key"] == "refused.not-waiting-for-the-toolheads"
+    with pytest.raises(HTTPError) as unsent:
+        post(base_url, "/jobs/accept-toolheads", {"job_id": created["job_id"]})
+    assert unsent.value.status == 400
+    assert service.jobs()[0].hold is None

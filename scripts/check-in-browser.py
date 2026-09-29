@@ -82,6 +82,7 @@ from printer_stand_in import (  # noqa: E402
     TOO_MUCH_ASA_METADATA,
     WHITE_PLA_METADATA,
     StandInPrinter,
+    seen_on,
 )
 
 A_TIME_WELL_IN_THE_FUTURE = "2030-06-01T06:00"
@@ -241,7 +242,9 @@ def check_choosing_a_file(page: Page, filename: str) -> None:
     check("the material is shown", "PLA" in facts, True)
     # The regression, visible on screen: slot 0 wants white PLA, which is on T2. The
     # printer would default it to T0, where the ASA is.
-    check("the toolhead it chose is shown", "on T2" in facts, True)
+    check("the toolhead it chose is the one picked", page.input_value("#file-facts select"), "2")
+    check("and every toolhead is offered beside it",
+          page.locator("#file-facts select option").count(), 4)
     check("and nothing claims there is no toolhead", "no toolhead" in facts, False)
     check("the estimate is shown", "about 26s" in facts, True)
     check("the bed temperature is shown", "bed 45" in facts, True)
@@ -438,9 +441,12 @@ def check_a_multi_tool_file(page: Page, printer: StandInPrinter) -> None:
         facts.count("slot ") >= SLOTS_IN_THE_MULTI_TOOL_FILE,
         True,
     )
+    pickers = page.locator("#file-facts select")
+    check("each one has a toolhead of its own to choose", pickers.count(),
+          SLOTS_IN_THE_MULTI_TOOL_FILE)
     check(
-        "each one names its toolhead",
-        facts.count(" on T") >= SLOTS_IN_THE_MULTI_TOOL_FILE,
+        "and each has one chosen already",
+        all(pickers.nth(index).input_value() != "" for index in range(pickers.count())),
         True,
     )
     check("nothing refuses it", "#file-facts .stop" not in facts, True)
@@ -462,6 +468,83 @@ def check_a_file_whose_material_is_not_loaded(page: Page, printer: StandInPrinte
     page.fill("#start-at", A_TIME_WELL_IN_THE_FUTURE)
     page.check("#bed-clear")
     check("and scheduling is refused", page.is_disabled("#save"), True)
+    check("while the page offers to choose them by hand",
+          "choose a toolhead for each slot yourself" in facts, True)
+
+    print("\nThe same file, with all three on the one ASA toolhead")
+    pickers = page.locator("#file-facts select")
+    pickers.nth(0).select_option("0")
+    check("one chosen is not a map", "a toolhead for slot 1" in text_of(page, "#save-blocked"),
+          True)
+    check("and nothing is scheduled until it is", page.is_disabled("#save"), True)
+    pickers.nth(1).select_option("0")
+    pickers.nth(2).select_option("0")
+    facts = text_of(page, "#file-facts")
+    check("the page says they come out the same", "Slots 0, 1, 2 print from the same" in facts,
+          True)
+    check("the scheduler's complaint is gone once it is not choosing", "needs 3" in facts, False)
+    check("and it can be scheduled", page.is_enabled("#save"), True)
+
+
+def check_choosing_the_toolheads_yourself(page: Page, printer: StandInPrinter) -> None:
+    """A map of the person's own: a different material asks first, and it all carries through.
+
+    Slot 0 of the file wants white PLA, which the scheduler puts on T2. T0 holds ASA, T1 blue
+    PLA.
+    """
+    print("\nChoosing the toolheads yourself")
+    printer.describes = {**WHITE_PLA_METADATA, "thumbnails": THUMBNAILS_THE_SLICER_WROTE}
+    page.reload()
+    wait_for_the_file_list(page)
+    pick_the_file(page, BENCHY)
+    page.wait_for_selector("#file-facts select", timeout=PATIENCE_MILLISECONDS)
+    page.fill("#start-at", A_TIME_WELL_IN_THE_FUTURE)
+    page.check("#bed-clear")
+    check_a_different_material_asks_first(page)
+    check_back_to_automatic(page)
+    check_a_chosen_map_carries_through(page)
+
+
+def check_a_different_material_asks_first(page: Page) -> None:
+    page.select_option("#file-facts select", "0")
+    page.wait_for_selector("#different-material-0", timeout=PATIENCE_MILLISECONDS)
+    facts = text_of(page, "#file-facts")
+    check("a different material asks, naming both",
+          "sliced for PLA and T0 holds ASA" in facts, True)
+    check("and nothing is scheduled until it is answered", page.is_disabled("#save"), True)
+    check("the button says what it is waiting for",
+          "your word on slot 0's material" in text_of(page, "#save-blocked"), True)
+    page.check("#different-material-0")
+    check("saying so is enough", page.is_enabled("#save"), True)
+    check("the page says whose map it is", "You chose these toolheads" in facts, True)
+
+
+def check_back_to_automatic(page: Page) -> None:
+    page.click("#file-facts button:has-text('Back to automatic')")
+    check("back to automatic puts the scheduler's choice back",
+          page.input_value("#file-facts select"), "2")
+    check("and the question goes with it", page.query_selector("#different-material-0"), None)
+
+
+def check_a_chosen_map_carries_through(page: Page) -> None:
+    page.select_option("#file-facts select", "1")
+    check("the same material asks nothing", page.query_selector("#different-material-1"), None)
+    page.click("#save")
+    page.wait_for_selector("#pending .job", timeout=PATIENCE_MILLISECONDS)
+    check("the row says whose map it is",
+          "toolheads chosen by you" in text_of(page, "#pending"), True)
+    check("the form is back to automatic for the next one",
+          "You chose these toolheads" in text_of(page, "#file-facts"), False)
+
+    page.click("#pending .job:has-text('toolheads chosen by you') button:has-text('Edit')")
+    page.wait_for_function(
+        "() => { const s = document.querySelector('#file-facts select');"
+        " return s && s.value === '1'; }",
+        timeout=PATIENCE_MILLISECONDS,
+    )
+    check("editing carries the map", page.input_value("#file-facts select"), "1")
+    page.click("#stop-editing")
+    cancel_one(page, BENCHY)
 
 
 # What a check has deliberately provoked, held only for as long as that check runs. A refusal
@@ -509,6 +592,7 @@ def run_every_check(page: Page, printer: StandInPrinter, base_url: str) -> None:
     check_the_lists_are_in_time_order(page)
     check_a_multi_tool_file(page, printer)
     check_a_file_whose_material_is_not_loaded(page, printer)
+    check_choosing_the_toolheads_yourself(page, printer)
 
 
 def check_a_setting_the_plugin_cannot_use(scratch: Path, printer: StandInPrinter) -> None:
@@ -551,6 +635,7 @@ def a_schedule_left_behind(scratch: Path) -> Heartbeat:
             start_at=now + 7 * 24 * 3600,
             created_at=now - A_LONG_SILENCE_SECONDS * 2,
             bed_acknowledged=True,
+            toolheads_seen=seen_on(WHITE_PLA_METADATA),
         )
     ])
     return Heartbeat(scratch / "last-seen")
@@ -677,7 +762,8 @@ def check_a_job_waiting_for_the_bed(scratch: Path, printer: StandInPrinter) -> N
     printer.reports = A_FINISHED_PRINT
     ScheduleStore(scratch / "jobs.json").save([
         Job(job_id="due-now", filename=BENCHY, start_at=time.time() - 30,
-            created_at=time.time() - 3600, bed_acknowledged=True)
+            created_at=time.time() - 3600, bed_acknowledged=True,
+            toolheads_seen=seen_on(WHITE_PLA_METADATA))
     ])
     base_url, server, service = serve(scratch, printer)
     service.tick(time.time())
@@ -740,6 +826,88 @@ def check_start_now_starts_it(page: Page, printer: StandInPrinter) -> None:
     check("start it now starts it", len(printer.started), 1)
     check("and the row stops asking",
           page.query_selector("#pending .job .warn button") is None, True)
+
+
+# T2 held the white PLA the file asked for, and now holds orange. The orange is still the nearest
+# PLA to the white, so the scheduler offers T2 again, and it is the person who says whether
+# orange will do.
+ORANGE_ON_T2 = tuple(
+    replace(one, colour="FF8040FF") if one.index == 2 else one  # noqa: PLR2004  T2
+    for one in StandInPrinter().loads
+)
+
+
+def check_jobs_waiting_on_their_toolheads(scratch: Path, printer: StandInPrinter) -> None:
+    """Two holds about toolheads, each answered on its row.
+
+    One job was scheduled before maps were recorded and is due next week; one is due now and
+    its spool was swapped. The second also meets the race: the page offers a map, a spool
+    moves, and the press is refused rather than accepting a map nobody saw.
+    """
+    print("\nJobs waiting on their toolheads")
+    now = time.time()
+    ScheduleStore(scratch / "jobs.json").save([
+        Job(job_id="from-before", filename=CHINESE_NAME, start_at=now + 7 * 24 * 3600,
+            created_at=now - 3600, bed_acknowledged=True),
+        Job(job_id="swapped", filename=BENCHY, start_at=now - 30, created_at=now - 3600,
+            bed_acknowledged=True, toolheads_seen=seen_on(WHITE_PLA_METADATA)),
+    ])
+    printer.loads = ORANGE_ON_T2
+    base_url, server, service = serve(scratch, printer)
+    service.tick(time.time())
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page()
+            watch_for_complaints(page)
+            page.goto(base_url)
+            check_a_job_from_before_maps(page, printer)
+            check_a_spool_swapped_since(page, printer)
+            browser.close()
+    finally:
+        server.shutdown()
+
+
+def check_a_job_from_before_maps(page: Page, printer: StandInPrinter) -> None:
+    row = f'#pending .job:has-text("{CHINESE_NAME}")'
+    page.wait_for_selector(f"{row} .warn button", timeout=PATIENCE_MILLISECONDS)
+    text = text_of(page, row)
+    check("a job from before maps is held a week early", "nobody has seen its map" in text, True)
+    check("it offers the map it would start on", "slot 0 on T2 (PLA #FF8040)" in text, True)
+    check("the long silence banner stays out of it", text_of(page, "#held-notice"), "")
+    page.click(f"{row} button:has-text('This map is right')")
+    page.wait_for_selector(f"{row}:has-text('Starts')", timeout=PATIENCE_MILLISECONDS)
+    check("confirming it lets it stand at its own time", printer.started, [])
+
+
+def check_a_spool_swapped_since(page: Page, printer: StandInPrinter) -> None:
+    row = f'#pending .job:has-text("{BENCHY}")'
+    page.wait_for_selector(f"{row} .warn button", timeout=PATIENCE_MILLISECONDS)
+    text = text_of(page, row)
+    check("the job due now was held, not started", printer.started, [])
+    check("its row says exactly what changed",
+          "T2 held PLA #E2DEDB for slot 0 and now holds PLA #FF8040" in text, True)
+    check("and offers what would work now", "slot 0 on T2 (PLA #FF8040)" in text, True)
+
+    # A spool moves after the page drew the offer: T2 is emptied, so the map on screen is one
+    # the scheduler would no longer make.
+    printer.loads = tuple(
+        replace(one, present=False) if one.index == 2 else one  # noqa: PLR2004  T2
+        for one in ORANGE_ON_T2
+    )
+    with a_refusal_we_asked_for("400 (Bad Request)"):
+        page.click(f"{row} button:has-text('Start it now with this map')")
+        page.wait_for_selector("#form-problem .stop", timeout=PATIENCE_MILLISECONDS)
+    check("a map that changed while somebody looked is refused", printer.started, [])
+    check("and the page says so",
+          "changed while you were looking" in text_of(page, "#form-problem"), True)
+
+    printer.loads = ORANGE_ON_T2
+    page.reload()
+    page.wait_for_selector(f"{row} .warn button", timeout=PATIENCE_MILLISECONDS)
+    page.click(f"{row} button:has-text('Start it now with this map')")
+    page.wait_for_selector(f"{row}:has-text('Starting now')", timeout=PATIENCE_MILLISECONDS)
+    check("accepting it starts it, on that map", printer.started, [(BENCHY, None, None, ((0, 2),))])
 
 
 # A phone held upright, which is where the longest strings have the least room. Portuguese runs
@@ -892,6 +1060,8 @@ def main() -> int:
         check_dismissing_a_finished_print(Path(scratch), a_printer_with_a_white_pla_file())
     with tempfile.TemporaryDirectory() as scratch:
         check_a_job_waiting_for_the_bed(Path(scratch), a_printer_with_a_white_pla_file())
+    with tempfile.TemporaryDirectory() as scratch:
+        check_jobs_waiting_on_their_toolheads(Path(scratch), a_printer_with_a_white_pla_file())
     return report()
 
 

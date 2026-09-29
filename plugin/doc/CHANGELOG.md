@@ -5,6 +5,33 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.5.0
+
+Choose the toolheads yourself, and a job now starts only on a map somebody saw.
+
+- **A toolhead to choose beside every slot.** The form offers every toolhead with what it holds,
+  with the scheduler's choice already picked. Change any one and the whole map is yours; **Back to
+  automatic** undoes it. Edit and "Schedule another like this" carry it, and the row says
+  "toolheads chosen by you".
+- **A different material, if you say so.** Putting a slot on a toolhead that holds another material
+  asks first, per slot, naming both, and says the file's own temperatures will be used. For when
+  the printer's record of what is loaded is wrong.
+- **Several slots on one toolhead**, for two of the file's colours from the same spool. The form
+  says they will come out the same.
+- **A file the scheduler cannot map can now be scheduled**, by choosing its toolheads yourself.
+- **A job whose toolheads changed since it was scheduled is held, not started.** What each
+  toolhead held is recorded when you schedule, and compared when the job comes due. If a spool was
+  swapped, emptied or recoloured, the row says exactly what changed and offers the map that works
+  now, with **Start it now with this map**. **This replaces two behaviours**: a job whose material
+  had left the machine used to be cancelled, and a job whose spools had moved used to be mapped
+  again without asking. Neither happens now without you.
+- **Jobs scheduled before 0.5.0 are held as soon as it runs**, on a printer that reports what is
+  loaded, because nobody ever saw the map they would start on. Each row offers it, with **This map
+  is right**. On a printer that does not report what is loaded, nothing changes for them.
+- **Downgrading keeps the schedule.** A job held for one of the new reasons is stored so that 0.4.1
+  reads it as held for the nearest reason it knows, rather than setting the whole schedule aside as
+  unreadable, which is what 0.4.1 does with a reason it has never seen.
+
 ## 0.4.1
 
 - **A held job no longer claims a start and a finish it will not make.** Its row said "Starts" at

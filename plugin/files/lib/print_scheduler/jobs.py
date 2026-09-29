@@ -68,15 +68,68 @@ class Refusal(str, Enum):
 class HoldReason(str, Enum):
     """Why a waiting job is not being considered, which decides what releases it.
 
-    A hold is a question for a person, and the two questions are different. After a long
-    silence the question is whether the schedule as a whole still says what somebody wants, so
-    one answer releases every job held for it. When the printer still shows a finished print the
-    question is whether this bed is clear for this job, so each job has its own answer, and that
-    answer starts it.
+    A hold is a question for a person, and the questions are different. After a long silence
+    the question is whether the schedule as a whole still says what somebody wants, so one answer
+    releases every job held for it. When the printer still shows a finished print the question
+    is whether this bed is clear for this job, so each job has its own answer, and that answer
+    starts it. The two about toolheads are per job too: whether the map somebody saw still
+    describes what is loaded, and, for a job scheduled before maps were recorded, whether the
+    map is right at all.
     """
 
     LONG_SILENCE = "long-silence"
     BED_NOT_CONFIRMED = "bed-not-confirmed"
+    TOOLHEADS_CHANGED = "toolheads-changed"
+    MAP_NOT_CONFIRMED = "map-not-confirmed"
+
+
+# The holds a person answers by accepting a toolhead map.
+TOOLHEAD_HOLDS = frozenset({HoldReason.TOOLHEADS_CHANGED, HoldReason.MAP_NOT_CONFIRMED})
+
+# What an older version is told a hold is, when it reads a schedule this one wrote. 0.4.1 reads
+# the `hold` key and treats a value it does not know as an unreadable schedule, which sets the
+# whole file aside and starts empty. So `hold` only ever carries a reason 0.4.1 knows, the
+# nearest one, and the real reason goes under a key it never reads. Each stand in keeps the job
+# held there and asks a person before it starts, which is the part that matters.
+UNDERSTOOD_BY_0_4_1 = {
+    HoldReason.LONG_SILENCE: HoldReason.LONG_SILENCE,
+    HoldReason.BED_NOT_CONFIRMED: HoldReason.BED_NOT_CONFIRMED,
+    HoldReason.TOOLHEADS_CHANGED: HoldReason.BED_NOT_CONFIRMED,
+    HoldReason.MAP_NOT_CONFIRMED: HoldReason.LONG_SILENCE,
+}
+
+
+@dataclass(frozen=True)
+class SeenToolhead:
+    """One slot, the toolhead it was given, and what that toolhead held when somebody saw it.
+
+    This is the record a job starts on. What is loaded is compared against it at the moment of
+    starting, and a job whose toolheads no longer hold what somebody saw is held rather than
+    started, because the map it would print with is one nobody has looked at.
+    """
+
+    slot: int
+    toolhead: int
+    material: str
+    # Six hex digits, or empty when the printer did not say.
+    colour: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "slot": self.slot,
+            "toolhead": self.toolhead,
+            "material": self.material,
+            "colour": self.colour,
+        }
+
+
+def seen_toolhead_from_dict(payload: dict[str, Any]) -> SeenToolhead:
+    return SeenToolhead(
+        slot=int(payload["slot"]),
+        toolhead=int(payload["toolhead"]),
+        material=str(payload.get("material", "")),
+        colour=str(payload.get("colour", "")),
+    )
 
 
 @dataclass(frozen=True)
@@ -136,6 +189,19 @@ class Job:
     # the reason has gone away. A job held for the bed does not start by itself once the bed
     # is dismissed, and a job that does not start with no reason on screen reads as a bug.
     held_at: float | None = None
+    # What exactly the hold is about, unrendered like `detail_key`: which toolhead changed, and
+    # from what to what. Empty when the reason says it all.
+    hold_detail_key: str = ""
+    hold_detail_values: dict[str, Any] = field(default_factory=dict)
+    # The slot to toolhead pairs the person chose on the form, or None when the scheduler chose.
+    # Kept so that Edit and "Schedule another like this" carry the choice, and so the row can
+    # say whose choice it was. It is not what the job starts on; `toolheads_seen` is.
+    toolheads_chosen: tuple[tuple[int, int], ...] | None = None
+    # The map somebody saw and accepted, with what each toolhead held at that moment. None means
+    # it was never recorded, which is every job scheduled before 0.5.0. An empty tuple means it
+    # was recorded and there was nothing to map, on a printer that does not report what is
+    # loaded. The two are different on purpose: the first is a question, the second an answer.
+    toolheads_seen: tuple[SeenToolhead, ...] | None = None
     attempts: tuple[Attempt, ...] = field(default_factory=tuple)
 
     @property
@@ -162,11 +228,22 @@ class Job:
             "detail_values": self.detail_values,
             "decided_at": self.decided_at,
             "printer_job_id": self.printer_job_id,
-            # Written beside `hold` so that a schedule saved by this version still reads
-            # correctly in 0.3.0, which knew only the flag. Nothing here reads it back.
+            # Written beside the reason so that a schedule saved by this version still reads
+            # correctly in 0.3.0, which knew only the flag.
             "held": self.held,
-            "hold": None if self.hold is None else self.hold.value,
+            # For 0.4.1, which knows two reasons and sets the whole schedule aside on a third.
+            # See UNDERSTOOD_BY_0_4_1. Nothing from 0.5.0 on reads it when the next key is there.
+            "hold": None if self.hold is None else UNDERSTOOD_BY_0_4_1[self.hold].value,
+            "hold_reason": None if self.hold is None else self.hold.value,
             "held_at": self.held_at,
+            "hold_detail_key": self.hold_detail_key,
+            "hold_detail_values": self.hold_detail_values,
+            "toolheads_chosen": None
+            if self.toolheads_chosen is None
+            else [[slot, toolhead] for slot, toolhead in self.toolheads_chosen],
+            "toolheads_seen": None
+            if self.toolheads_seen is None
+            else [one.to_dict() for one in self.toolheads_seen],
             "attempts": [{"at": attempt.at, "detail": attempt.detail} for attempt in self.attempts],
         }
 
@@ -194,6 +271,12 @@ def job_from_dict(payload: dict[str, Any]) -> Job:
         printer_job_id=str(payload.get("printer_job_id", "")),
         hold=_hold_from(payload),
         held_at=payload.get("held_at"),
+        hold_detail_key=str(payload.get("hold_detail_key", "")),
+        hold_detail_values=dict(payload.get("hold_detail_values") or {}),
+        toolheads_chosen=_pairs_from(payload.get("toolheads_chosen")),
+        toolheads_seen=None
+        if payload.get("toolheads_seen") is None
+        else tuple(seen_toolhead_from_dict(one) for one in payload["toolheads_seen"]),
         attempts=tuple(
             Attempt(at=float(entry["at"]), detail=str(entry["detail"]))
             for entry in payload.get("attempts", [])
@@ -202,15 +285,30 @@ def job_from_dict(payload: dict[str, Any]) -> Job:
 
 
 def _hold_from(payload: dict[str, Any]) -> HoldReason | None:
-    """The hold, including one written before a hold had a reason.
+    """The hold, including one written by an older version or a newer one.
 
-    0.3.0 stored only a flag, and the only thing that could set it was a long silence, so that
-    is what a bare flag means.
+    The real reason first, then the key 0.4.1 wrote, then the flag 0.3.0 wrote, which only a
+    long silence could set. A reason this version has never heard of, written by a later one,
+    is still a hold: it falls back to the older key, and failing that is read as the one that
+    asks the broadest question. Never as an unreadable schedule, which would set every job
+    aside to answer a question about one.
     """
-    stated = payload.get("hold")
-    if stated is not None:
-        return HoldReason(stated)
-    return HoldReason.LONG_SILENCE if payload.get("held") else None
+    stated = [payload.get(key) for key in ("hold_reason", "hold")]
+    for value in stated:
+        if value is not None:
+            try:
+                return HoldReason(value)
+            except ValueError:
+                continue
+    if any(value is not None for value in stated) or payload.get("held"):
+        return HoldReason.LONG_SILENCE
+    return None
+
+
+def _pairs_from(value: Any) -> tuple[tuple[int, int], ...] | None:
+    if value is None:
+        return None
+    return tuple((int(slot), int(toolhead)) for slot, toolhead in value)
 
 
 def new_job_id() -> str:

@@ -42,11 +42,12 @@ A gcode file numbers its filaments by slicer slot. Your printer numbers its hard
 toolhead. They are not the same thing, and there is no sensible default: left alone, a
 printer sends slot 0 to toolhead 0, which on a four toolhead machine is right only by luck.
 
-So the scheduler chooses. Each slot goes to a toolhead loaded with the material that slot
-needs, and the page shows the choice before you commit to it: *slot 0 PLA on T2*. A file using
-several slots gets several toolheads, one each, and the page lists every one of them. If
-nothing loaded has the right material for a slot, or two slots want a material only one
-toolhead holds, nothing starts and the page says what is loaded instead.
+So the scheduler chooses, unless you do. Each slot goes to a toolhead loaded with the material
+that slot needs, and the page shows the choice before you commit to it, as a toolhead picked
+beside each slot. A file using several slots gets several toolheads, one each. If nothing loaded
+has the right material for a slot, or two slots want a material only one toolhead holds, the
+scheduler has no map to offer and says what is loaded instead; you can still choose one
+yourself.
 
 Colour decides between toolheads of the same material, and it does so by nearness rather than
 by exact match, the same way the slicer does when you press *Upload and print*. A colour one
@@ -55,8 +56,8 @@ nearest is not the same, the page says so and prints anyway, showing both values
 knowing that #5343B7 went to a toolhead holding #5E43B7 is a different fact from knowing that
 purple went to navy.
 
-Material is never traded away for colour. If nothing loaded has the right material for a slot,
-nothing starts.
+The scheduler never trades material away for colour. If nothing loaded has the right material for
+a slot, it offers no map at all.
 
 On a printer that does not report what each toolhead holds, there is no choice to make: the page
 lists the file's slots without naming toolheads, and the file's own tool numbering runs as it was
@@ -67,8 +68,53 @@ toolhead in turn is the obvious approach and it is wrong: slot 0 can take the to
 needed far more, when slot 0 had an almost as good second choice. What is minimised is the
 total across every slot.
 
-The choice is made again at the moment the job fires, never carried over from when it was
-scheduled. You can set a job at ten at night and change a spool at midnight.
+### Choosing the toolheads yourself
+
+Each slot's toolhead is a list on the form, offering every toolhead with what it holds. Change any
+one of them and the whole map becomes yours, starting from what the scheduler had chosen: the
+scheduler never fills in the rest around your choice, because it would quietly rearrange the other
+slots to suit it. **Back to automatic** undoes it. The row then says *toolheads chosen by you*, and
+**Edit** and **Schedule another like this** carry your map as they carry levelling and timelapse.
+
+Two things the scheduler would never choose, you may:
+
+- **A toolhead holding a different material.** The printer's record of what is loaded can be
+  wrong, and that is exactly when somebody needs to overrule it. The form asks first, per slot,
+  naming both materials, and says the file's own temperatures will be used: it was sliced for the
+  material it names, not for what is in the toolhead. The agreement is not carried into Edit or a
+  copy; you give it again, like the promise about the bed.
+- **Several slots on one toolhead.** They print from the same spool, so those colours come out the
+  same, and the form says so.
+
+A toolhead the printer reports as empty is shown and cannot be chosen.
+
+### When the toolheads change before it starts
+
+When you schedule a job, the map on screen is recorded with what each of its toolheads held at
+that moment, whether you chose it or the scheduler did. When the job comes due, that record is
+compared with what is loaded, and **the job starts only on the map you saw.** If any of its
+toolheads now holds a different material or colour, is empty, or is gone, or the file now uses
+different slots, the job is **held for you**, not started and not mapped again behind your back.
+You can set a job at ten at night and change a spool at midnight; the job will ask in the morning
+rather than guess.
+
+Its row says exactly what changed, *T2 held PLA #E2DEDB for slot 0 and now holds PLA #FF8040*,
+and offers the map the scheduler would choose with what is loaded now, with **Start it now with
+this map**. The map you accept is checked again when you press it, and if a spool moved in the
+seconds since the page drew it, nothing happens and the page says so. When nothing loaded will do,
+it says that instead, and **Edit** lets you choose the toolheads yourself. Accepting a map answers
+the question about the toolheads and not the one about the bed: if the printer still shows a
+finished print, the job then asks about that, on the same row.
+
+### Jobs scheduled before 0.5.0
+
+Those chose their map again at the moment of starting and never showed it to anybody, so there is
+no record to compare against. **On a printer that reports what is loaded, every waiting job from
+before 0.5.0 is held as soon as 0.5.0 runs**, not when it comes due, so the question is on the
+page tonight rather than at six in the morning. Its row offers the map it would start on, with
+**This map is right**, which lets it stand at its own time, or **This map is right, start it now**
+if its time has already gone. On a printer that does not report what is loaded there is no map to
+confirm, and those jobs start exactly as they always did.
 
 ## How long it will take
 
@@ -135,12 +181,17 @@ does not start however healthy the printer looks.
 | The print reports an error | **Cancelled**, with the printer's message |
 | Something other than a print is running | **Retried**: a calibration started by hand is a matter of minutes |
 | The file is no longer on the printer | **Cancelled** |
-| No free toolhead holds the material the file needs | **Cancelled**, naming what is loaded |
+| The job was scheduled before maps were recorded, on a printer with a map to make | **Held for you**, offering the map it would start on; see [Jobs scheduled before 0.5.0](#jobs-scheduled-before-050) |
+| Its toolheads no longer hold what they held when its map was seen | **Held for you**, saying what changed and offering a map that works now; see [When the toolheads change before it starts](#when-the-toolheads-change-before-it-starts) |
 | Another scheduled job started in the same tick | **Cancelled** as busy. At most one job starts per tick |
 | The printer refused the start | **Cancelled**, carrying the printer's own refusal verbatim |
 | The printer accepted the start and then did not run it | **Cancelled**: the start did not take |
 | None of the above | **Started**, once the printer is seen to act on it |
 | You cancelled it | **Cancelled**, recorded as your decision rather than as a refusal |
+
+Until 0.5.0 a job whose material nothing held was cancelled, as *no toolhead for the material*.
+It is held instead now, so that reason is no longer given, and a row settled with it before then
+still reads as it did.
 
 Four of those deserve saying out loud.
 
@@ -236,8 +287,10 @@ because you asked. Every other check still applies, afresh:
 - if something would pass by itself, such as another print running, the printer not answering or
   Klipper not ready, **nothing starts, the job stays held**, and the page says why so you can try
   again;
-- if something never will, such as the file having gone or no toolhead holding the material, the
-  job is cancelled with that reason, exactly as it would be at a normal start.
+- if something never will, such as the file having gone, the job is cancelled with that reason,
+  exactly as it would be at a normal start;
+- if its toolheads no longer hold what they did when its map was seen, the job is held again, for
+  that, with the question on the row: one question at a time.
 
 **Dismissing the print on the printer's own screen does not start a held job.** Somebody dismissing
 a print in the evening is not asking for the morning's job to begin while they load something else.
@@ -432,6 +485,3 @@ adapter remains a thing this plugin has never met.
 ## What it does not do yet
 
 - **Recurring schedules.** One-shot jobs only.
-- **Choosing the toolheads yourself.** The mapping is worked out from what is loaded and shown
-  to you, but it cannot be overridden. When two slots want a material whose colours are not
-  loaded, that choice is arbitrary and you can only cancel, not correct it.

@@ -21,6 +21,8 @@ from print_scheduler.gcode_files import FileRow, FileSummary, file_rows, summari
 from print_scheduler.heartbeat import A_LONG_SILENCE_SECONDS, Heartbeat
 from print_scheduler.history import SetupTimes, measure_setup_times, verdict_for
 from print_scheduler.jobs import (
+    TOOLHEAD_HOLDS,
+    Attempt,
     HoldReason,
     Job,
     JobState,
@@ -38,10 +40,18 @@ from print_scheduler.printer import (
     PrinterSnapshot,
     PrintRecord,
 )
-from print_scheduler.runner import cancel_by_hand, run_tick, start_now
+from print_scheduler.runner import (
+    THE_MAP_IS_RIGHT,
+    Action,
+    Decision,
+    cancel_by_hand,
+    held_for_a_person,
+    run_tick,
+    start_now,
+)
 from print_scheduler.settings import Settings
 from print_scheduler.store import ScheduleStore
-from print_scheduler.tool_mapping import ToolPlan, plan_tools
+from print_scheduler.tool_mapping import ToolPlan, plan_chosen, plan_tools, what_was_seen
 
 # How many settled jobs are kept on disk whatever the display cap says. A settled job is the
 # only record of which levelling choice a print was started with, and the printer's history
@@ -84,6 +94,11 @@ class JobRequest:
     bed_acknowledged: bool = False
     level_bed: bool | None = None
     record_timelapse: bool | None = None
+    # The person's own slot to toolhead pairs, or None to let the scheduler choose.
+    toolheads_chosen: tuple[tuple[int, int], ...] | None = None
+    # The slots the person has said may print from a toolhead holding a different material.
+    # Asked per slot, because agreeing to one mismatch is not agreeing to another.
+    materials_acknowledged: frozenset[int] = frozenset()
 
 
 def trimmed_to(jobs: Sequence[Job], kept: int) -> list[Job]:
@@ -171,6 +186,9 @@ class ScheduleService:
         # Asked once, on the first tick, because that is the first moment a clock is handed in
         # and the last moment before anything could be started.
         self._asked_about_the_silence = False
+        # Asked on every tick until the printer has said what is loaded once, because until it
+        # has there is no telling a job that needs a map from one that does not.
+        self._looked_for_unrecorded_maps = False
         self._lock = threading.Lock()
         self._jobs: list[Job] = store.load()
 
@@ -214,11 +232,54 @@ class ScheduleService:
     def tick(self, now: float) -> None:
         """Settle whatever has come due. Called on a timer, and never from a web handler."""
         with self._lock:
+            # Before the silence, so a job from before maps were recorded asks about its map,
+            # which a person answers on its own row, rather than joining the silence's banner,
+            # whose answer would only lead to the map question anyway.
+            self._hold_what_was_scheduled_before_maps(now)
             self._hold_what_a_long_silence_left_behind(now)
             settled = run_tick(self._jobs, self._printer, now, self.tolerance_seconds())
             self._remember(settled)
         if self._heartbeat is not None:
             self._heartbeat.mark(now)
+
+    def _hold_what_was_scheduled_before_maps(self, now: float) -> None:
+        """Hold every waiting job that has no record of the map somebody saw.
+
+        That is every job scheduled before 0.5.0, which chose its map again at the moment of
+        starting and never showed it to anybody. Held as soon as this version runs rather than
+        when each comes due, so the question is on the page tonight and not at six in the
+        morning.
+
+        Only on a printer that reports what is loaded. A printer that does not has no map to
+        confirm, and an old job there starts exactly as it always did. A printer that is not
+        answering yet cannot be told apart from one of those, so the question is asked again
+        on the next tick, and the runner holds any job that comes due in the meantime.
+        """
+        if self._looked_for_unrecorded_maps:
+            return
+        unrecorded = {
+            job.job_id
+            for job in self._jobs
+            if job.state is JobState.SCHEDULED and not job.held and job.toolheads_seen is None
+        }
+        if not unrecorded:
+            self._looked_for_unrecorded_maps = True
+            return
+        if not self.loaded_filaments():
+            return
+        self._looked_for_unrecorded_maps = True
+        _log.warning(
+            "holding %d job(s) scheduled before toolhead maps were recorded, "
+            "until somebody confirms each map",
+            len(unrecorded),
+        )
+        asked = Decision(
+            Action.HOLD, None, Said(Message.MAP_NEVER_CONFIRMED), HoldReason.MAP_NOT_CONFIRMED
+        )
+        self._remember([
+            held_for_a_person(job, now, asked) if job.job_id in unrecorded else job
+            for job in self._jobs
+        ])
 
     def _hold_what_a_long_silence_left_behind(self, now: float) -> None:
         """Once per run: if the scheduler was away a long time, nothing waiting may fire yet.
@@ -324,11 +385,87 @@ class ScheduleService:
             if not_now is not None:
                 raise ScheduleRejectedError(not_now)
             self._remember([updated if job.job_id == job_id else job for job in self._jobs])
-        _log.info("started %s now, on the word that the bed is clear", existing.filename)
+        _log.info("%s after the word that the bed is clear: %s", existing.filename,
+                  "held again" if updated.held else updated.state.value)
         return updated
 
+    def accept_toolheads(
+        self, job_id: str, toolheads: Sequence[tuple[int, int]], now: float
+    ) -> Job:
+        """Record the map a person just accepted for a held job, then carry on from there.
+
+        The map sent is checked against one worked out afresh, and refused if they differ.
+        The page can be seconds old, and a spool changed in those seconds would otherwise be
+        accepted by somebody who never saw it.
+
+        A job whose time has come is started now, under the same lock as the tick. Its answer
+        was about the toolheads, not the bed, so the bed is still asked about: one question at
+        a time. A job whose time is still ahead simply stands again.
+        """
+        with self._lock:
+            existing = self._find(job_id)
+            if existing.state is not JobState.SCHEDULED:
+                raise ScheduleRejectedError(
+                    Said(Message.ALREADY_SETTLED, {"state": said_state(existing.state)})
+                )
+            if existing.hold not in TOOLHEAD_HOLDS:
+                raise ScheduleRejectedError(Said(Message.NOT_WAITING_FOR_THE_TOOLHEADS))
+            plan = self._proposal_for(existing, self.loaded_filaments())
+            if plan.problem is not None:
+                raise ScheduleRejectedError(plan.problem)
+            if plan.as_pairs() != tuple(sorted(toolheads)):
+                raise ScheduleRejectedError(Said(Message.TOOLHEADS_CHANGED_AGAIN))
+            recorded = replace(existing, toolheads_chosen=None, toolheads_seen=what_was_seen(plan))
+            if existing.start_at > now:
+                updated = replace(
+                    recorded,
+                    hold=None,
+                    held_at=None,
+                    hold_detail_key="",
+                    hold_detail_values={},
+                    attempts=recorded.attempts
+                    + (Attempt(now, THE_MAP_IS_RIGHT.said.in_english()),),
+                )
+            else:
+                updated, not_now = start_now(
+                    recorded, self._printer, now, self.tolerance_seconds(), THE_MAP_IS_RIGHT
+                )
+                if not_now is not None:
+                    raise ScheduleRejectedError(not_now)
+            self._remember([updated if job.job_id == job_id else job for job in self._jobs])
+        _log.info("%s: toolhead map confirmed, %s", existing.filename,
+                  "held again" if updated.held else updated.state.value)
+        return updated
+
+    def _proposal_for(self, job: Job, loaded: Sequence[LoadedFilament]) -> ToolPlan:
+        """The map a held job would start on, if somebody accepted it now.
+
+        Always the scheduler's own, worked out against what is loaded now, whoever chose the
+        map before. Somebody who wants a different one has Edit, which asks for everything
+        again.
+        """
+        if not loaded:
+            return ToolPlan(problem=Said(Message.NOT_REPORTED_NOW))
+        try:
+            summary = self.file_summary(job.filename)
+        except OSError:
+            return ToolPlan(
+                problem=Said(Message.COULD_NOT_DESCRIBE_FILE, {"filename": job.filename})
+            )
+        return plan_tools(summary.tools, loaded)
+
+    def _proposals_for(self, jobs: Sequence[Job]) -> dict[str, dict[str, Any]]:
+        """A proposal for each job waiting on its toolheads, off one reading of what is loaded."""
+        waiting = [
+            job for job in jobs if job.state is JobState.SCHEDULED and job.hold in TOOLHEAD_HOLDS
+        ]
+        if not waiting:
+            return {}
+        loaded = self.loaded_filaments()
+        return {job.job_id: proposal_payload(self._proposal_for(job, loaded)) for job in waiting}
+
     def add(self, request: JobRequest, now: float) -> Job:
-        summary = self._vet(request, now)
+        summary, plan = self._vet(request, now)
         job = Job(
             job_id=new_job_id(),
             filename=request.filename,
@@ -340,22 +477,36 @@ class ScheduleService:
             level_bed=request.level_bed,
             record_timelapse=request.record_timelapse,
             estimated_seconds=summary.estimated_seconds,
+            toolheads_chosen=_chosen_in(request, plan),
+            toolheads_seen=what_was_seen(plan),
         )
         with self._lock:
             self._remember([*self._jobs, job])
         return job
 
     def update(self, job_id: str, request: JobRequest, now: float) -> Job:
-        """Change a job that has not fired yet."""
-        summary = self._vet(request, now)
+        """Change a job that has not fired yet.
+
+        Editing shows the map again and asks for it again, so it answers a hold about the
+        toolheads, and the map recorded is the one on screen now. A hold about the bed or a
+        long silence is a different question, and stands.
+        """
+        summary, plan = self._vet(request, now)
         with self._lock:
             existing = self._find(job_id)
             if existing.state is not JobState.SCHEDULED:
                 raise ScheduleRejectedError(
                     Said(Message.ALREADY_UNDERWAY, {"state": said_state(existing.state)})
                 )
+            answered = existing.hold in TOOLHEAD_HOLDS
             updated = replace(
                 existing,
+                hold=None if answered else existing.hold,
+                held_at=None if answered else existing.held_at,
+                hold_detail_key="" if answered else existing.hold_detail_key,
+                hold_detail_values={} if answered else existing.hold_detail_values,
+                toolheads_chosen=_chosen_in(request, plan),
+                toolheads_seen=what_was_seen(plan),
                 filename=request.filename,
                 start_at=request.start_at,
                 # Editing re-asks for the promise about the bed, so it is a new promise,
@@ -450,7 +601,9 @@ class ScheduleService:
         setups = measure_setup_times(records, _levelling_by_printer_job(jobs))
         shown = trimmed_to(jobs, self.settled_kept())
         return {
-            "jobs": payload_for(shown, self._verdicts_in(records), setups),
+            "jobs": payload_for(
+                shown, self._verdicts_in(records), setups, self._proposals_for(shown)
+            ),
             "setup": setups.to_dict(),
         }
 
@@ -472,7 +625,7 @@ class ScheduleService:
                 return job
         raise ScheduleRejectedError(Said(Message.NO_SUCH_JOB))
 
-    def _vet(self, request: JobRequest, now: float) -> FileSummary:
+    def _vet(self, request: JobRequest, now: float) -> tuple[FileSummary, ToolPlan]:
         """Refuse everything that can be refused now rather than at six in the morning."""
         unstartable = reason_filename_cannot_start(
             request.filename, self.supports_print_preferences()
@@ -487,16 +640,56 @@ class ScheduleService:
             raise ScheduleRejectedError(
                 Said(Message.NOT_ON_THE_PRINTER, {"filename": request.filename})
             )
-        return self._vet_the_file(request.filename)
+        return self._vet_the_file(request)
 
-    def _vet_the_file(self, filename: str) -> FileSummary:
-        summary = self.file_summary(filename)
-        # Checked again when the job fires, which is the check that counts: a spool can be
-        # changed overnight. This one is so you find out now instead of at six.
-        plan = self.tool_plan(summary)
+    def _vet_the_file(self, request: JobRequest) -> tuple[FileSummary, ToolPlan]:
+        """The file's summary and the map it will be recorded with, or why there is none.
+
+        The map is checked again when the job fires, against what is loaded then, and the job
+        is held if the two differ: a spool can be changed overnight. This check is so you find
+        out now instead of at six.
+        """
+        summary = self.file_summary(request.filename)
+        loaded = self.loaded_filaments()
+        if request.toolheads_chosen is None:
+            plan = plan_tools(summary.tools, loaded)
+        else:
+            plan = plan_chosen(summary.tools, loaded, request.toolheads_chosen)
         if plan.problem is not None:
             raise ScheduleRejectedError(plan.problem)
-        return summary
+        for one in plan.assignments:
+            if one.materials_differ and one.slot not in request.materials_acknowledged:
+                raise ScheduleRejectedError(
+                    Said(
+                        Message.MATERIAL_NOT_ACKNOWLEDGED,
+                        {
+                            "slot": one.slot,
+                            "wanted": one.wanted_material,
+                            "toolhead": one.toolhead,
+                            "loaded": one.filament_type,
+                        },
+                    )
+                )
+        return summary, plan
+
+
+def _chosen_in(request: JobRequest, plan: ToolPlan) -> tuple[tuple[int, int], ...] | None:
+    """The person's map as it will be carried through Edit, or None if the scheduler chose.
+
+    None as well on a printer with no map to make, where a choice sent anyway means nothing.
+    """
+    if request.toolheads_chosen is None or not plan.applicable:
+        return None
+    return plan.as_pairs()
+
+
+def proposal_payload(plan: ToolPlan) -> dict[str, Any]:
+    """A proposed map for the page, with the pairs the page sends back to accept it."""
+    return {
+        **plan.to_dict(),
+        "toolheads": [[slot, toolhead] for slot, toolhead in plan.as_pairs()],
+        "acceptable": plan.problem is None,
+    }
 
 
 def why_nothing_can_be_dismissed(seen: PrinterSnapshot) -> Said | None:
@@ -517,6 +710,7 @@ def why_nothing_can_be_dismissed(seen: PrinterSnapshot) -> Said | None:
         return Said(Message.NOTHING_TO_DISMISS, {"state": seen.print_state})
     return None
 
+
 def _levelling_by_printer_job(jobs: Sequence[Job]) -> dict[str, bool]:
     """Which of the printer's own prints we know the levelling choice for.
 
@@ -535,6 +729,7 @@ def payload_for(
     jobs: Sequence[Job],
     verdicts: dict[str, PrintRecord],
     setups: SetupTimes | None = None,
+    proposals: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Render the schedule for the page: what we did, and separately what the printer says.
 
@@ -562,5 +757,6 @@ def payload_for(
         entry["overlaps_with"] = clashes.get(job.job_id)
         verdict = verdicts.get(job.job_id)
         entry["printer_says"] = None if verdict is None else verdict.status
+        entry["toolheads_proposal"] = (proposals or {}).get(job.job_id)
         rendered.append(entry)
     return rendered

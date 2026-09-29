@@ -36,6 +36,7 @@ from print_scheduler.service import (
     ScheduleRejectedError,
     ScheduleService,
 )
+from print_scheduler.tool_mapping import normalise_colour
 
 _log = logging.getLogger("bespok3d.print_scheduler")
 
@@ -68,6 +69,8 @@ SERVICE_VERSION = version_in(MANIFEST_PATH)
 JSON_CONTENT_TYPE = "application/json"
 # A schedule entry is a filename and a few flags. Anything larger is not one.
 MAXIMUM_BODY_BYTES = 64 * 1024
+# A slot and a toolhead.
+PAIR = 2
 
 
 def _why_it_was_refused(refused: Exception) -> dict[str, Any]:
@@ -205,7 +208,39 @@ def _job_request(payload: dict[str, Any]) -> JobRequest:
         bed_acknowledged=bool(payload.get("bed_acknowledged", False)),
         level_bed=_preference(payload.get("level_bed")),
         record_timelapse=_preference(payload.get("record_timelapse")),
+        toolheads_chosen=_toolhead_pairs(payload.get("toolheads_chosen")),
+        materials_acknowledged=frozenset(
+            _whole_numbers(payload.get("materials_acknowledged") or [], "materials_acknowledged")
+        ),
     )
+
+
+def _toolhead_pairs(value: Any) -> tuple[tuple[int, int], ...] | None:
+    """Slot and toolhead pairs as the page sends them, or None to let the scheduler choose.
+
+    Refused as malformed rather than read generously. A map is the thing that decides which
+    nozzle a print goes through, and a request whose map had to be guessed at is not one to
+    act on.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise BadRequestError("toolheads must be a list of [slot, toolhead] pairs")
+    pairs = []
+    for pair in value:
+        if not isinstance(pair, list) or len(pair) != PAIR:
+            raise BadRequestError("toolheads must be a list of [slot, toolhead] pairs")
+        slot, toolhead = _whole_numbers(pair, "toolheads")
+        pairs.append((slot, toolhead))
+    return tuple(pairs)
+
+
+def _whole_numbers(values: Any, name: str) -> list[int]:
+    if not isinstance(values, list) or not all(
+        isinstance(one, int) and not isinstance(one, bool) and one >= 0 for one in values
+    ):
+        raise BadRequestError(f"{name} must hold whole numbers")
+    return list(values)
 
 
 def _preference(value: Any) -> bool | None:
@@ -265,6 +300,17 @@ def serve_file_summary(handler: SchedulerRequestHandler) -> None:
     summary = schedule.file_summary(requested)
     payload = summary.to_dict()
     payload["plan"] = schedule.tool_plan(summary).to_dict()
+    # What each toolhead holds, so the page can offer every one of them to choose from, and
+    # not only the ones the scheduler would have picked.
+    payload["loaded"] = [
+        {
+            "index": one.index,
+            "filament_type": one.filament_type,
+            "colour": normalise_colour(one.colour),
+            "present": one.present,
+        }
+        for one in schedule.loaded_filaments()
+    ]
     handler.respond_json(HTTPStatus.OK, payload)
 
 
@@ -345,6 +391,19 @@ def start_now(handler: SchedulerRequestHandler) -> None:
     handler.respond_json(HTTPStatus.OK, handler.schedule().start_now(job_id, time.time()).to_dict())
 
 
+def accept_toolheads(handler: SchedulerRequestHandler) -> None:
+    """Accept the map offered for a job held over its toolheads, and carry on from there."""
+    payload = handler.json_body()
+    job_id = str(payload.get("job_id", ""))
+    if not job_id:
+        raise BadRequestError("name a job")
+    toolheads = _toolhead_pairs(payload.get("toolheads"))
+    if toolheads is None:
+        raise BadRequestError("send the map you accepted")
+    accepted = handler.schedule().accept_toolheads(job_id, toolheads, time.time())
+    handler.respond_json(HTTPStatus.OK, accepted.to_dict())
+
+
 def release_held_jobs(handler: SchedulerRequestHandler) -> None:
     """Let jobs held after a long silence stand again, all of them at once."""
     released = handler.schedule().release_held_jobs()
@@ -369,6 +428,7 @@ POST_ROUTES: dict[str, Route] = {
     "/jobs/forget-settled": forget_settled_jobs,
     "/jobs/release": release_held_jobs,
     "/jobs/start-now": start_now,
+    "/jobs/accept-toolheads": accept_toolheads,
     "/printer/dismiss": dismiss_finished_print,
 }
 

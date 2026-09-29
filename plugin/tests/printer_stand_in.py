@@ -17,7 +17,11 @@ from print_scheduler import (
     LoadedFilament,
     PrinterSnapshot,
     PrintRecord,
+    SeenToolhead,
     StartRefusedError,
+    plan_tools,
+    tools_used,
+    what_was_seen,
 )
 
 BENCHY = "3DBenchy_ASA_HF_48m40s.gcode"
@@ -127,6 +131,20 @@ FOUR_TOOL_METADATA: dict[str, Any] = {
     "filament_weight": [1.93, 0.83, 0.8, 0.28],
     "estimated_time": 865,
 }
+
+
+def seen_on(
+    metadata: dict[str, Any] | None = None,
+    loads: tuple[LoadedFilament, ...] = LOADED_ON_THE_PRINTER,
+) -> tuple[SeenToolhead, ...]:
+    """The map somebody would have seen scheduling this file on this printer.
+
+    Which is what every job scheduled from 0.5.0 on carries. A job built without one is a job
+    from before maps were recorded, and is held for that on a printer that reports what is
+    loaded, so a test that means an ordinary job has to give it this.
+    """
+    described = SINGLE_TOOL_METADATA if metadata is None else metadata
+    return what_was_seen(plan_tools(tools_used(described), loads))
 
 
 @dataclass

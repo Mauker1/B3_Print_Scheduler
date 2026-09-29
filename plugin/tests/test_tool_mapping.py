@@ -13,16 +13,21 @@ import pytest
 from print_scheduler import (
     LoadedFilament,
     Message,
+    SeenToolhead,
     ToolUse,
     colour_distance,
     normalise_colour,
+    plan_as_seen,
+    plan_chosen,
     plan_tools,
     tools_used,
+    what_was_seen,
 )
 from printer_stand_in import (
     FOUR_TOOL_METADATA,
     LOADED_ON_THE_PRINTER,
     SINGLE_TOOL_METADATA,
+    TWO_COLOUR_METADATA,
     WHITE_PLA_METADATA,
 )
 
@@ -192,3 +197,86 @@ def test_not_enough_toolheads_of_one_material_says_how_many_short() -> None:
     assert plan.problem.key is Message.NOT_ENOUGH_OF_MATERIAL
     assert "needs 3 toolheads with ASA" in plan.problem.in_english()
     assert "the printer has 1" in plan.problem.in_english()
+
+
+# ---- a map somebody chose, and a map somebody saw ------------------------------------------------
+
+
+def test_a_chosen_map_keeps_what_the_file_asked_for_beside_what_it_gets() -> None:
+    plan = plan_chosen(tools_used(WHITE_PLA_METADATA), LOADED_ON_THE_PRINTER, [(0, 0)])
+    [one] = plan.assignments
+    assert (one.wanted_material, one.filament_type) == ("PLA", "ASA")
+    assert one.materials_differ is True
+
+
+def test_the_schedulers_own_map_never_differs_in_material() -> None:
+    plan = plan_tools(tools_used(FOUR_TOOL_METADATA), LOADED_ON_THE_PRINTER)
+    assert [one.materials_differ for one in plan.assignments] == [False] * 4
+
+
+def test_a_slot_whose_file_names_no_material_cannot_differ_from_anything() -> None:
+    unnamed = dict(WHITE_PLA_METADATA, filament_type=";ASA;PLA;PLA")
+    plan = plan_chosen(tools_used(unnamed), LOADED_ON_THE_PRINTER, [(0, 0)])
+    assert plan.problem is None
+    assert plan.assignments[0].materials_differ is False
+
+
+def test_a_chosen_map_on_a_printer_with_nothing_to_map_is_no_map() -> None:
+    plan = plan_chosen(tools_used(WHITE_PLA_METADATA), NOTHING_LOADED, [(0, 3)])
+    assert plan.applicable is False
+    assert what_was_seen(plan) == ()
+
+
+def test_what_was_seen_is_what_the_toolhead_held() -> None:
+    plan = plan_tools(tools_used(WHITE_PLA_METADATA), LOADED_ON_THE_PRINTER)
+    assert what_was_seen(plan) == (
+        SeenToolhead(slot=0, toolhead=2, material="PLA", colour="E2DEDB"),
+    )
+
+
+def test_a_map_as_seen_starts_on_exactly_those_toolheads() -> None:
+    seen = what_was_seen(plan_tools(tools_used(TWO_COLOUR_METADATA), LOADED_ON_THE_PRINTER))
+    plan = plan_as_seen(tools_used(TWO_COLOUR_METADATA), LOADED_ON_THE_PRINTER, seen)
+    assert plan.problem is None
+    assert plan.as_pairs() == ((0, 2), (1, 3))
+
+
+def test_a_material_that_differs_only_in_case_is_not_a_change() -> None:
+    seen = (SeenToolhead(slot=0, toolhead=2, material="pla", colour="E2DEDB"),)
+    plan = plan_as_seen(tools_used(WHITE_PLA_METADATA), LOADED_ON_THE_PRINTER, seen)
+    assert plan.problem is None
+
+
+def test_two_slots_on_a_changed_toolhead_make_one_change_naming_both() -> None:
+    seen = (
+        SeenToolhead(slot=0, toolhead=1, material="PETG", colour="0A2989"),
+        SeenToolhead(slot=1, toolhead=1, material="PETG", colour="0A2989"),
+    )
+    plan = plan_as_seen(tools_used(TWO_COLOUR_METADATA), LOADED_ON_THE_PRINTER, seen)
+    assert plan.problem is not None
+    assert plan.problem.in_english() == (
+        "Held because the toolheads no longer hold what they held when the map was seen: "
+        "T1 held PETG #0A2989 for slots 0, 1 and now holds PLA #0A2989"
+    )
+
+
+def test_every_change_is_named_not_just_the_first() -> None:
+    seen = (
+        SeenToolhead(slot=0, toolhead=6, material="PLA", colour=""),
+        SeenToolhead(slot=1, toolhead=3, material="PLA", colour="5E43B7"),
+    )
+    emptied = tuple(
+        LoadedFilament(one.index, one.filament_type, one.colour, one.index != 3)  # noqa: PLR2004
+        for one in LOADED_ON_THE_PRINTER
+    )
+    plan = plan_as_seen(tools_used(TWO_COLOUR_METADATA), emptied, seen)
+    assert plan.problem is not None
+    said = plan.problem.in_english()
+    assert "T3 held PLA #5E43B7 for slot 1 and is now empty" in said
+    assert "T6 was chosen for slot 0 and the printer no longer reports it" in said
+
+
+def test_nothing_seen_is_a_question_once_there_is_something_to_map() -> None:
+    plan = plan_as_seen(tools_used(WHITE_PLA_METADATA), LOADED_ON_THE_PRINTER, ())
+    assert plan.problem is not None
+    assert plan.problem.key is Message.NOT_REPORTED_WHEN_SCHEDULED

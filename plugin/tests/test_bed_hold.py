@@ -26,7 +26,7 @@ from print_scheduler import (
     overlapping_job_ids,
     projected_finish,
 )
-from printer_stand_in import BENCHY, IDLE, StandInPrinter
+from printer_stand_in import BENCHY, IDLE, StandInPrinter, seen_on
 
 SIX_IN_THE_MORNING = 1_758_348_000.0
 FINISHED = replace(IDLE, print_state="complete", printing_filename="cube.gcode")
@@ -38,6 +38,7 @@ def a_job(**overrides: object) -> Job:
         "filename": BENCHY,
         "start_at": SIX_IN_THE_MORNING,
         "bed_acknowledged": True,
+        "toolheads_seen": seen_on(),
     }
     defaults.update(overrides)
     return Job(**defaults)  # type: ignore[arg-type]
