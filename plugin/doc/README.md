@@ -36,6 +36,18 @@ the morning.
 The page needs JavaScript. It is a printer's web interface, and so is everything else on the
 machine.
 
+## Use at your own risk
+
+Scheduling a print means deciding, each time, that it may start while nobody is watching. The
+scheduler checks what it can: that the printer is idle, that the job's time has not passed, and
+that the toolheads still hold what you saw. It cannot see the bed, the nozzle or the room around
+the printer. It takes your word about those, and the printer's word about everything else. Keep
+the printer's own safety features on, and only schedule a print you would be comfortable leaving
+to run unattended.
+
+To the extent the law allows, it is provided as is, without warranty; see sections 15 and 16 of
+the [licence](https://github.com/Mauker1/B3_Print_Scheduler/blob/main/LICENSE).
+
 ## Which toolhead it uses
 
 A gcode file numbers its filaments by slicer slot. Your printer numbers its hardware by
