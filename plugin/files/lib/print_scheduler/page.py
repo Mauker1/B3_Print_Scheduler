@@ -1184,17 +1184,28 @@ function save() {
   document.getElementById("save").disabled = true;
   postJson(path, body).then(function () {
     stopEditing();
-    document.getElementById("start-at").value = "";
-    document.getElementById("bed-clear").checked = false;
-    state.chosenMap = null;
-    state.acknowledged = {};
-    renderFileFacts();
-    refreshSaveButton();
+    emptyTheForm();
     return loadJobs();
   }).catch(function (problem) {
     showProblem(document.getElementById("form-problem"), problem.message);
     refreshSaveButton();
   });
+}
+
+// After a save, the form is a fresh one: no file, no time, no promise, no map. A file left chosen
+// with its toolhead lists still on screen read as a job still being edited, which it was not.
+// Levelling and timelapse are left as they are, as they always were. "Schedule another like
+// this" on the row is the way back to the same file.
+function emptyTheForm() {
+  state.chosen = "";
+  state.summary = null;
+  state.chosenMap = null;
+  state.acknowledged = {};
+  document.getElementById("start-at").value = "";
+  document.getElementById("bed-clear").checked = false;
+  renderFiles();
+  renderFileFacts();
+  refreshSaveButton();
 }
 
 function forgetJob(job) {
@@ -1422,10 +1433,14 @@ function chooseFile(filename) {
 function loadSummary(filename) {
   if (!filename) { state.summary = null; renderFileFacts(); refreshSaveButton(); return; }
   api("./file?filename=" + encodeURIComponent(filename)).then(function (payload) {
+    // An answer for a file that is no longer the chosen one, because the form was emptied or
+    // another file picked while it was on its way, is dropped rather than drawn.
+    if (state.chosen !== filename) { return; }
     state.summary = payload;
     renderFileFacts();
     refreshSaveButton();
   }).catch(function () {
+    if (state.chosen !== filename) { return; }
     state.summary = null;
     renderFileFacts();
   });

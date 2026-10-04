@@ -298,6 +298,14 @@ def check_scheduling(page: Page) -> None:
     check("the time is cleared for the next one", page.input_value("#start-at"), "")
     check("the promise is not reused", page.is_checked("#bed-clear"), False)
     check("and scheduling is refused again", page.is_disabled("#save"), True)
+    check_the_form_is_empty(page, "the file is let go too")
+
+
+def check_the_form_is_empty(page: Page, description: str) -> None:
+    """After a save the form is a fresh one, so nothing on it looks like a job still in hand."""
+    check(description, page.query_selector('#file-list .file[aria-pressed="true"]'), None)
+    check("and its details and toolheads go with it", text_of(page, "#file-facts"), "")
+    check("so the form asks for a file again", "a file" in text_of(page, "#save-blocked"), True)
 
 
 def check_cancelling(page: Page) -> None:
@@ -356,6 +364,7 @@ def check_editing_carries_the_jobs_own_choices(page: Page) -> None:
     page.click("#save")
     page.wait_for_selector("#pending .job:has-text('no levelling')", timeout=PATIENCE_MILLISECONDS)
     check("the change is saved", "no levelling, timelapse" in text_of(page, "#pending"), True)
+    check_the_form_is_empty(page, "saving an edit lets the file go")
 
     page.check("#level-bed")
     page.click("#pending .job button:has-text('Edit')")
@@ -533,8 +542,7 @@ def check_a_chosen_map_carries_through(page: Page) -> None:
     page.wait_for_selector("#pending .job", timeout=PATIENCE_MILLISECONDS)
     check("the row says whose map it is",
           "toolheads chosen by you" in text_of(page, "#pending"), True)
-    check("the form is back to automatic for the next one",
-          "You chose these toolheads" in text_of(page, "#file-facts"), False)
+    check_the_form_is_empty(page, "saving a chosen map lets the file go")
 
     page.click("#pending .job:has-text('toolheads chosen by you') button:has-text('Edit')")
     page.wait_for_function(

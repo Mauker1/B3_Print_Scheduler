@@ -5,6 +5,13 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.5.1
+
+- **Saving empties the form.** After scheduling or editing a job, the file stayed chosen with its
+  details on screen, and once those details included a toolhead to pick for each slot it looked
+  as if the job were still being edited. The form now starts fresh after every save. "Schedule
+  another like this" on the job's row is the way back to the same file.
+
 ## 0.5.0
 
 Choose the toolheads yourself, and a job now starts only on a map somebody saw.
