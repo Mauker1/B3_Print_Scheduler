@@ -422,16 +422,22 @@ is then cancelled and tells you so.
 
 An upgrade takes seconds, so it never triggers this, and neither does a fresh install.
 
-## Uninstalling does not cancel scheduled prints
+## Uninstalling keeps your schedule, and starts nothing
 
-Uninstalling removes the plugin, its settings and its web page. It does not remove your
-schedule. The schedule lives in a data directory, and the Bespok3d daemon preserves those across
-an uninstall on purpose, so that a plugin cannot throw away your data. Reinstall, and the
-schedule is there again.
+While the plugin is uninstalled, nothing it scheduled can start. The scheduler goes with the
+plugin, and nothing else on the printer knows about the schedule.
 
-If you want a scheduled print gone, cancel it in the plugin before uninstalling. If you
-reinstall much later, the section above applies: everything waiting is held until you confirm
-it.
+What uninstalling does not do is delete the schedule. It lives in a data directory, which the
+Bespok3d daemon keeps across an uninstall on purpose, so that a plugin cannot throw away your
+data. Reinstall, and the schedule is back:
+
+- if the plugin was gone for more than a day, everything still waiting is held until you confirm
+  it, as described above, and nothing starts until you do;
+- if it was gone for less than that, a job whose time passed while it was gone, by more than the
+  tolerance in the settings, is cancelled as missed and says so, and a job whose time is still
+  ahead starts at that time.
+
+If you want a scheduled print gone for good, cancel it in the plugin before uninstalling.
 
 ## Reaching the page from Mainsail's sidebar
 

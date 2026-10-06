@@ -30,11 +30,12 @@ running mainline Klipper, Moonraker and Mainsail. Nothing in it is specific to e
 
 ### What uninstalling does, and does not do
 
-Uninstalling removes the plugin, its settings and its web location. **It does not cancel prints
-you have already scheduled.** The schedule lives in a data directory, which the Bespok3d daemon
-preserves across an uninstall by design so that plugins do not throw away your data, and a
-reinstall picks it up again. If you want a scheduled print gone, cancel it in the plugin before
-uninstalling.
+Uninstalling removes the plugin, its settings and its web location, and the scheduler with them,
+so nothing scheduled can start while it is uninstalled. **It does not delete your schedule.** The
+schedule lives in a data directory, which the Bespok3d daemon preserves across an uninstall by
+design so that plugins do not throw away your data, and a reinstall picks it up again. The plugin
+README says what then happens to jobs whose time passed in the meantime. If you want a scheduled
+print gone for good, cancel it in the plugin before uninstalling.
 
 ## Layout
 
