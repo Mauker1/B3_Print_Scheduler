@@ -14,6 +14,7 @@ from print_scheduler.cli import (
     start_logging,
     tick_once,
 )
+from print_scheduler.filament_left import Shortfall, needs_of, needs_on, shortfalls
 from print_scheduler.gcode_files import (
     FileRow,
     FileSummary,
@@ -62,9 +63,13 @@ from print_scheduler.messages import (
 from print_scheduler.moonraker import (
     MoonrakerPrinter,
     build_start_script,
+    coerce_spool_id,
     loaded_filaments_from_config,
     print_records_from_history,
     snapshot_from_status,
+    spools_from_afc_lanes,
+    spools_from_tool_macros,
+    toolhead_of_extruder,
 )
 from print_scheduler.page import render_schedule_page
 from print_scheduler.printer import (
@@ -78,6 +83,7 @@ from print_scheduler.printer import (
     Printer,
     PrinterSnapshot,
     PrintRecord,
+    SpoolLeft,
     StartRefusedError,
 )
 from print_scheduler.runner import (
@@ -160,6 +166,15 @@ __all__ = [
     "PrinterSnapshot",
     "Refusal",
     "SeenToolhead",
+    "Shortfall",
+    "SpoolLeft",
+    "coerce_spool_id",
+    "needs_of",
+    "needs_on",
+    "shortfalls",
+    "spools_from_afc_lanes",
+    "spools_from_tool_macros",
+    "toolhead_of_extruder",
     "ScheduleRejectedError",
     "ScheduleService",
     "ScheduleStore",

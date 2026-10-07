@@ -128,6 +128,31 @@ page tonight rather than at six in the morning. Its row offers the map it would 
 if its time has already gone. On a printer that does not report what is loaded there is no map to
 confirm, and those jobs start exactly as they always did.
 
+### Filament left on the spool
+
+Where the printer can say how much filament is left on each spool, the page warns when a job needs
+more from a toolhead than its spool has: beside the slot on the form, and on the job's row while it
+waits. *T2 has about 32 g left, and this print needs about 40 g from it.* Two slots on one toolhead
+are added together, because they take from the same spool.
+
+It is a warning and nothing more. Nothing is refused or held because of it, and there is nothing
+to tick. Running out is something a printer can recover from, by refilling from another spool or
+by pausing for a new one, and if yours does either, that is what will happen; the scheduler does
+not step in. A spool is only flagged when more is needed than is left, never when it is merely
+close, because both numbers are estimates: the slicer's grams, and Spoolman's count of what was
+used.
+
+It needs two things from the printer, both read through Moonraker, so no other plugin is required:
+
+- **Spoolman**, connected through Moonraker's own Spoolman integration, for how much is left;
+- **which spool is in which toolhead**, from each tool macro's `spool_id` (`gcode_macro T0`,
+  `T1` and so on, the setup Mainsail and Fluidd describe for printers with several tools), or
+  failing that from AFC's lanes.
+
+Without both, there is no warning and nothing else changes. A printer with a single toolhead and
+only Spoolman is not covered yet. The reading is reused for 30 seconds, so a spool you have just
+swapped can take that long to show.
+
 ## How long it will take
 
 A slicer's estimate is how long the printing takes. It is not how long the job takes, because

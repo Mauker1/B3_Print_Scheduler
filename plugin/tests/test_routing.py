@@ -277,3 +277,10 @@ def test_accepting_a_map_through_the_endpoint(served: tuple[str, ScheduleService
         post(base_url, "/jobs/accept-toolheads", {"job_id": created["job_id"]})
     assert unsent.value.status == 400
     assert service.jobs()[0].hold is None
+
+
+def test_a_file_summary_says_what_each_spool_has_left_where_it_can(
+    served: tuple[str, ScheduleService],
+) -> None:
+    # The stand-in has no Spoolman, like most printers, so the answer is an empty list.
+    assert get(served[0], f"/file?filename={BENCHY}")["filament_left"] == []

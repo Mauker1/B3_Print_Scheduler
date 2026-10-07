@@ -311,6 +311,12 @@ def serve_file_summary(handler: SchedulerRequestHandler) -> None:
         }
         for one in schedule.loaded_filaments()
     ]
+    # How much each toolhead's spool has left, where Spoolman can say. The page works out the
+    # shortfall itself, because only the page knows which toolhead each slot is on right now.
+    payload["filament_left"] = [
+        {"toolhead": one.toolhead, "spool_id": one.spool_id, "grams": one.grams}
+        for one in schedule.filament_left()
+    ]
     handler.respond_json(HTTPStatus.OK, payload)
 
 

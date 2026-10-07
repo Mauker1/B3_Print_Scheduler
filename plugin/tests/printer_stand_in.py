@@ -18,6 +18,7 @@ from print_scheduler import (
     PrinterSnapshot,
     PrintRecord,
     SeenToolhead,
+    SpoolLeft,
     StartRefusedError,
     plan_tools,
     tools_used,
@@ -166,6 +167,10 @@ class StandInPrinter:
     offers_preferences: bool = True
     loads: tuple[LoadedFilament, ...] = LOADED_ON_THE_PRINTER
     loading_raises: OSError | None = None
+    # What Spoolman says is left on each toolhead's spool. Empty, as on a printer without it.
+    spools_left: tuple[SpoolLeft, ...] = ()
+    # How many times it was asked, so a test can see a reading being reused.
+    asked_for_filament_left: int = 0
     refuses_dismiss_with: str | None = None
     # How many times the dismiss command reached this printer. The number the tests care about
     # most is zero, for every state in which it must not be sent.
@@ -212,6 +217,10 @@ class StandInPrinter:
         if self.loading_raises is not None:
             raise self.loading_raises
         return self.loads
+
+    def filament_left(self) -> tuple[SpoolLeft, ...]:
+        self.asked_for_filament_left += 1
+        return self.spools_left
 
     def supports_print_preferences(self) -> bool:
         return self.offers_preferences

@@ -571,6 +571,8 @@ function renderFileFacts() {
     parts.push(element("p", "quiet", t("page.no-material-stated")));
   }
   if (choosing) { parts = parts.concat(aboutTheChosenMap()); }
+  var short = filamentWarning(shortOfFilament(summary));
+  if (short) { parts.push(short); }
 
   var facts = [];
   var duration = howLong(summary.estimated_seconds);
@@ -756,6 +758,55 @@ function materialAgreement(tool) {
   return agreement;
 }
 
+// ---- what is left on the spool ----------------------------------------------------------------
+//
+// A warning and nothing more: running out is something the printer can recover from, by
+// refilling or by pausing for a new spool. The service sends what Spoolman says each toolhead's
+// spool has left, and the page works out the shortfall, because only the page knows which
+// toolhead each slot is on while somebody is still choosing.
+
+// The toolhead a slot will print from: the map on screen where there is one, and the file's own
+// numbering, slot 0 on T0, on a printer with no map to make.
+function toolheadOfSlot(summary, tool) {
+  return aMapApplies(summary) ? toolheadFor(tool.slot) : tool.slot;
+}
+
+// Added up per toolhead, because two slots on one spool take from the same spool, and either
+// alone may fit where both together do not. Flagged only when more is needed than is left: both
+// numbers are estimates, and a warning for every spool that is merely close would stop being read.
+function shortOfFilament(summary) {
+  var left = {};
+  (summary.filament_left || []).forEach(function (one) { left[one.toolhead] = one.grams; });
+  var needed = {};
+  summary.tools.forEach(function (tool) {
+    var toolhead = toolheadOfSlot(summary, tool);
+    if (!tool.used_grams || toolhead === null || left[toolhead] === undefined) { return; }
+    needed[toolhead] = (needed[toolhead] || 0) + tool.used_grams;
+  });
+  return Object.keys(needed).map(Number).sort(function (a, b) { return a - b; })
+    .filter(function (toolhead) { return needed[toolhead] > left[toolhead]; })
+    .map(function (toolhead) {
+      return { toolhead: toolhead, needed: needed[toolhead], left: left[toolhead] };
+    });
+}
+
+// Left is rounded down and needed rounded up, so the two numbers on screen never read as equal
+// when one is in fact more than the other. Inside a box that is already a warning it draws no
+// border of its own, so it does not read as a second, separate one.
+function filamentWarning(short, inside) {
+  if (!short || !short.length) { return null; }
+  var warning = element("div", inside ? null : "warn");
+  short.forEach(function (one) {
+    warning.appendChild(element("p", null, t("page.filament-short", {
+      toolhead: one.toolhead,
+      left: Math.max(0, Math.floor(one.left)),
+      needed: Math.ceil(one.needed)
+    })));
+  });
+  warning.appendChild(element("p", "quiet", t("page.filament-short-note")));
+  return warning;
+}
+
 function chosenPairs() {
   if (!state.chosenMap) { return null; }
   return Object.keys(state.chosenMap).map(Number).sort(function (a, b) { return a - b; })
@@ -904,6 +955,9 @@ function renderJob(job) {
       job.state === "scheduled") {
     body.appendChild(heldForTheToolheads(job));
   }
+  if (job.state === "scheduled" && job.filament_short && job.filament_short.length) {
+    body.appendChild(filamentWarning(job.filament_short));
+  }
   if (job.overlaps_with) {
     body.appendChild(element("p", "warn", t("page.overlaps-with-an-earlier-job")));
   }
@@ -961,6 +1015,9 @@ function heldForTheToolheads(job) {
   if (offered && offered.acceptable) {
     held.appendChild(element("p", null,
       t("page.it-would-print", { mapping: describeOffer(offered) })));
+    // Before the button, so a map onto a nearly empty spool is not accepted unseen.
+    var short = filamentWarning(offered.filament_short, true);
+    if (short) { held.appendChild(short); }
     var late = job.start_at <= Date.now() / 1000;
     var label;
     if (changed) { label = late ? t("page.use-this-map-start-now") : t("page.use-this-map"); }

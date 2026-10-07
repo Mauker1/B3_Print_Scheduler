@@ -63,6 +63,19 @@ class LoadedFilament:
 
 
 @dataclass(frozen=True)
+class SpoolLeft:
+    """How much filament is left on the spool in one toolhead, by the reckoning of Spoolman.
+
+    Spoolman's number, not ours and not the printer's: it counts what it has been told was used,
+    so it is as good as whatever reports usage to it. That is why it only ever feeds a warning.
+    """
+
+    toolhead: int
+    spool_id: int
+    grams: float
+
+
+@dataclass(frozen=True)
 class PrintRecord:
     """One entry of the printer's own job history.
 
@@ -131,6 +144,14 @@ class Printer(Protocol):
 
     def loaded_filaments(self) -> tuple[LoadedFilament, ...]:
         """What is in each toolhead. Empty on a printer that does not track it."""
+        ...
+
+    def filament_left(self) -> tuple[SpoolLeft, ...]:
+        """How much is left on the spool in each toolhead, where the printer can say.
+
+        Empty, never raising, on a printer that cannot: no Spoolman, or nothing that says which
+        spool is in which toolhead.
+        """
         ...
 
     def supports_print_preferences(self) -> bool:

@@ -70,6 +70,7 @@ from print_scheduler import (  # noqa: E402
     ScheduleService,
     ScheduleStore,
     Settings,
+    SpoolLeft,
     build_server,
     start_logging,
 )
@@ -861,6 +862,8 @@ def check_jobs_waiting_on_their_toolheads(scratch: Path, printer: StandInPrinter
             bed_acknowledged=True, toolheads_seen=seen_on(WHITE_PLA_METADATA)),
     ])
     printer.loads = ORANGE_ON_T2
+    # T2's spool is nearly empty, so the map offered onto it has to say so before it is accepted.
+    printer.spools_left = (SpoolLeft(toolhead=2, spool_id=11, grams=0.05),)
     base_url, server, service = serve(scratch, printer)
     service.tick(time.time())
     try:
@@ -882,10 +885,14 @@ def check_a_job_from_before_maps(page: Page, printer: StandInPrinter) -> None:
     text = text_of(page, row)
     check("a job from before maps is held a week early", "nobody has seen its map" in text, True)
     check("it offers the map it would start on", "slot 0 on T2 (PLA #FF8040)" in text, True)
+    check("and says the spool on that map is short, before it is accepted",
+          "T2 has about 0 g left" in text, True)
     check("the long silence banner stays out of it", text_of(page, "#held-notice"), "")
     page.click(f"{row} button:has-text('This map is right')")
     page.wait_for_selector(f"{row}:has-text('Starts')", timeout=PATIENCE_MILLISECONDS)
     check("confirming it lets it stand at its own time", printer.started, [])
+    check("and the row goes on warning, now that it knows the grams",
+          "T2 has about 0 g left" in text_of(page, row), True)
 
 
 def check_a_spool_swapped_since(page: Page, printer: StandInPrinter) -> None:
@@ -916,6 +923,56 @@ def check_a_spool_swapped_since(page: Page, printer: StandInPrinter) -> None:
     page.click(f"{row} button:has-text('Start it now with this map')")
     page.wait_for_selector(f"{row}:has-text('Starting now')", timeout=PATIENCE_MILLISECONDS)
     check("accepting it starts it, on that map", printer.started, [(BENCHY, None, None, ((0, 2),))])
+
+
+def check_a_spool_running_low(scratch: Path, printer: StandInPrinter) -> None:
+    """A warning on the form and on the row, and never anything that stops a job.
+
+    The white PLA file needs 0.07 g from T2. T2's spool has 0.05 g left by Spoolman's count, T1's
+    has plenty.
+    """
+    print("\nA spool running low")
+    printer.spools_left = (
+        SpoolLeft(toolhead=1, spool_id=154, grams=731.7),
+        SpoolLeft(toolhead=2, spool_id=11, grams=0.05),
+    )
+    base_url, server, _service = serve(scratch, printer)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            page = browser.new_page()
+            watch_for_complaints(page)
+            page.goto(base_url)
+            check_the_form_warns_about_a_low_spool(page)
+            check_the_row_warns_about_it_too(page)
+            browser.close()
+    finally:
+        server.shutdown()
+
+
+def check_the_form_warns_about_a_low_spool(page: Page) -> None:
+    wait_for_the_file_list(page)
+    pick_the_file(page, BENCHY)
+    page.wait_for_selector("#file-facts select", timeout=PATIENCE_MILLISECONDS)
+    facts = text_of(page, "#file-facts")
+    check("the form says the spool has less left than needed",
+          "T2 has about 0 g left, and this print needs about 1 g from it" in facts, True)
+    check("and leaves running out to the printer",
+          "If the printer refills or pauses for a new spool" in facts, True)
+    page.select_option("#file-facts select", "1")
+    check("choosing a toolhead with enough takes the warning away",
+          "g left" in text_of(page, "#file-facts"), False)
+    page.click("#file-facts button:has-text('Back to automatic')")
+
+
+def check_the_row_warns_about_it_too(page: Page) -> None:
+    page.fill("#start-at", A_TIME_WELL_IN_THE_FUTURE)
+    page.check("#bed-clear")
+    check("the warning never stops a job being scheduled", page.is_enabled("#save"), True)
+    page.click("#save")
+    page.wait_for_selector("#pending .job:has-text('g left')", timeout=PATIENCE_MILLISECONDS)
+    check("the waiting row says it too",
+          "T2 has about 0 g left" in text_of(page, "#pending"), True)
 
 
 # A phone held upright, which is where the longest strings have the least room. Portuguese runs
@@ -1070,6 +1127,8 @@ def main() -> int:
         check_a_job_waiting_for_the_bed(Path(scratch), a_printer_with_a_white_pla_file())
     with tempfile.TemporaryDirectory() as scratch:
         check_jobs_waiting_on_their_toolheads(Path(scratch), a_printer_with_a_white_pla_file())
+    with tempfile.TemporaryDirectory() as scratch:
+        check_a_spool_running_low(Path(scratch), a_printer_with_a_white_pla_file())
     return report()
 
 

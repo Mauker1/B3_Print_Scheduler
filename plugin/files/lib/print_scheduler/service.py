@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
+from print_scheduler.filament_left import Shortfall, needs_of, needs_on, shortfalls
 from print_scheduler.gcode_files import FileRow, FileSummary, file_rows, summarise
 from print_scheduler.heartbeat import A_LONG_SILENCE_SECONDS, Heartbeat
 from print_scheduler.history import SetupTimes, measure_setup_times, verdict_for
@@ -39,6 +41,7 @@ from print_scheduler.printer import (
     Printer,
     PrinterSnapshot,
     PrintRecord,
+    SpoolLeft,
 )
 from print_scheduler.runner import (
     THE_MAP_IS_RIGHT,
@@ -60,6 +63,11 @@ from print_scheduler.tool_mapping import ToolPlan, plan_chosen, plan_tools, what
 # comfortably above the ten finished prints the measurement window reaches back over, with
 # room for a run that is all one levelling choice.
 LABELS_WORTH_KEEPING = 30
+
+# How long one reading of the filament left is reused. It takes several requests to Moonraker and
+# one Spoolman lookup per spool, and the page asks every ten seconds from every open tab, for a
+# number that only moves while something prints. A swapped spool shows up when this runs out.
+FILAMENT_LEFT_KEPT_SECONDS = 30.0
 
 _log = logging.getLogger("bespok3d.print_scheduler")
 
@@ -178,6 +186,7 @@ class ScheduleService:
         printer: Printer,
         settings: Settings,
         heartbeat: Heartbeat | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._store = store
         self._printer = printer
@@ -191,6 +200,11 @@ class ScheduleService:
         self._looked_for_unrecorded_maps = False
         self._lock = threading.Lock()
         self._jobs: list[Job] = store.load()
+        # Its own lock, never the schedule's: a slow Spoolman must not hold up a start. Holding
+        # it while reading means two tabs refreshing together make one reading, not two.
+        self._clock = clock
+        self._filament_lock = threading.Lock()
+        self._filament_reading: tuple[float, tuple[SpoolLeft, ...]] | None = None
 
     def jobs(self) -> list[Job]:
         with self._lock:
@@ -410,12 +424,19 @@ class ScheduleService:
                 )
             if existing.hold not in TOOLHEAD_HOLDS:
                 raise ScheduleRejectedError(Said(Message.NOT_WAITING_FOR_THE_TOOLHEADS))
-            plan = self._proposal_for(existing, self.loaded_filaments())
+            plan, grams = self._proposal_for(existing, self.loaded_filaments())
             if plan.problem is not None:
                 raise ScheduleRejectedError(plan.problem)
             if plan.as_pairs() != tuple(sorted(toolheads)):
                 raise ScheduleRejectedError(Said(Message.TOOLHEADS_CHANGED_AGAIN))
-            recorded = replace(existing, toolheads_chosen=None, toolheads_seen=what_was_seen(plan))
+            # The grams are recorded with the map, so a job from before they were kept warns
+            # about its spools from here on, as a job scheduled today does.
+            recorded = replace(
+                existing,
+                toolheads_chosen=None,
+                toolheads_seen=what_was_seen(plan),
+                slot_grams=grams or existing.slot_grams,
+            )
             if existing.start_at > now:
                 updated = replace(
                     recorded,
@@ -437,32 +458,45 @@ class ScheduleService:
                   "held again" if updated.held else updated.state.value)
         return updated
 
-    def _proposal_for(self, job: Job, loaded: Sequence[LoadedFilament]) -> ToolPlan:
-        """The map a held job would start on, if somebody accepted it now.
+    def _proposal_for(
+        self, job: Job, loaded: Sequence[LoadedFilament]
+    ) -> tuple[ToolPlan, tuple[tuple[int, float], ...]]:
+        """The map a held job would start on, if somebody accepted it now, and its grams per slot.
 
         Always the scheduler's own, worked out against what is loaded now, whoever chose the
         map before. Somebody who wants a different one has Edit, which asks for everything
-        again.
+        again. The grams come from the same reading of the file, so a job that never recorded
+        them, or lost them to an older version, can still be checked against its spools.
         """
         if not loaded:
-            return ToolPlan(problem=Said(Message.NOT_REPORTED_NOW))
+            return ToolPlan(problem=Said(Message.NOT_REPORTED_NOW)), ()
         try:
             summary = self.file_summary(job.filename)
         except OSError:
             return ToolPlan(
                 problem=Said(Message.COULD_NOT_DESCRIBE_FILE, {"filename": job.filename})
-            )
-        return plan_tools(summary.tools, loaded)
+            ), ()
+        return plan_tools(summary.tools, loaded), _grams_by_slot(summary)
 
     def _proposals_for(self, jobs: Sequence[Job]) -> dict[str, dict[str, Any]]:
-        """A proposal for each job waiting on its toolheads, off one reading of what is loaded."""
+        """A proposal for each job waiting on its toolheads, off one reading of what is loaded.
+
+        Each carries whether its spools have enough on them, so the warning is on screen before
+        somebody presses the button that accepts it, not only after.
+        """
         waiting = [
             job for job in jobs if job.state is JobState.SCHEDULED and job.hold in TOOLHEAD_HOLDS
         ]
         if not waiting:
             return {}
         loaded = self.loaded_filaments()
-        return {job.job_id: proposal_payload(self._proposal_for(job, loaded)) for job in waiting}
+        proposals: dict[str, dict[str, Any]] = {}
+        for job in waiting:
+            plan, grams = self._proposal_for(job, loaded)
+            needs = needs_on(plan.as_pairs(), grams) if plan.problem is None else []
+            short = shortfalls(needs, self.filament_left()) if needs else ()
+            proposals[job.job_id] = proposal_payload(plan, short)
+        return proposals
 
     def add(self, request: JobRequest, now: float) -> Job:
         summary, plan = self._vet(request, now)
@@ -479,6 +513,7 @@ class ScheduleService:
             estimated_seconds=summary.estimated_seconds,
             toolheads_chosen=_chosen_in(request, plan),
             toolheads_seen=what_was_seen(plan),
+            slot_grams=_grams_by_slot(summary),
         )
         with self._lock:
             self._remember([*self._jobs, job])
@@ -507,6 +542,7 @@ class ScheduleService:
                 hold_detail_values={} if answered else existing.hold_detail_values,
                 toolheads_chosen=_chosen_in(request, plan),
                 toolheads_seen=what_was_seen(plan),
+                slot_grams=_grams_by_slot(summary),
                 filename=request.filename,
                 start_at=request.start_at,
                 # Editing re-asks for the promise about the bed, so it is a new promise,
@@ -548,6 +584,39 @@ class ScheduleService:
             return self._printer.loaded_filaments()
         except OSError:
             return ()
+
+    def filament_left(self) -> tuple[SpoolLeft, ...]:
+        """How much is left on each toolhead's spool, read at most once every 30 seconds."""
+        with self._filament_lock:
+            now = self._clock()
+            if self._filament_reading is not None:
+                read_at, reading = self._filament_reading
+                if now - read_at < FILAMENT_LEFT_KEPT_SECONDS:
+                    return reading
+            try:
+                reading = self._printer.filament_left()
+            except OSError:
+                reading = ()
+            self._filament_reading = (now, reading)
+            return reading
+
+    def _shortfalls_for(self, jobs: Sequence[Job]) -> dict[str, list[dict[str, Any]]]:
+        """For each waiting job, the toolheads with less left than it needs. Read only if asked."""
+        # A job held over its toolheads is left out: the map it recorded is the one in doubt, and
+        # its offer carries the warning for the map that would replace it.
+        waiting = [
+            (job, needs) for job in jobs
+            if job.state is JobState.SCHEDULED
+            and job.hold not in TOOLHEAD_HOLDS
+            and (needs := needs_of(job))
+        ]
+        if not waiting:
+            return {}
+        left = self.filament_left()
+        found = {job.job_id: shortfalls(needs, left) for job, needs in waiting}
+        return {
+            job_id: [one.to_dict() for one in short] for job_id, short in found.items() if short
+        }
 
     def tool_plan(self, summary: FileSummary) -> ToolPlan:
         """Which toolhead each of the file's slots would run on, as things stand now."""
@@ -602,7 +671,11 @@ class ScheduleService:
         shown = trimmed_to(jobs, self.settled_kept())
         return {
             "jobs": payload_for(
-                shown, self._verdicts_in(records), setups, self._proposals_for(shown)
+                shown,
+                self._verdicts_in(records),
+                setups,
+                self._proposals_for(shown),
+                self._shortfalls_for(shown),
             ),
             "setup": setups.to_dict(),
         }
@@ -683,12 +756,17 @@ def _chosen_in(request: JobRequest, plan: ToolPlan) -> tuple[tuple[int, int], ..
     return plan.as_pairs()
 
 
-def proposal_payload(plan: ToolPlan) -> dict[str, Any]:
+def _grams_by_slot(summary: FileSummary) -> tuple[tuple[int, float], ...]:
+    return tuple((tool.slot, tool.used_grams) for tool in summary.tools if tool.used_grams > 0)
+
+
+def proposal_payload(plan: ToolPlan, short: Sequence[Shortfall] = ()) -> dict[str, Any]:
     """A proposed map for the page, with the pairs the page sends back to accept it."""
     return {
         **plan.to_dict(),
         "toolheads": [[slot, toolhead] for slot, toolhead in plan.as_pairs()],
         "acceptable": plan.problem is None,
+        "filament_short": [one.to_dict() for one in short],
     }
 
 
@@ -730,6 +808,7 @@ def payload_for(
     verdicts: dict[str, PrintRecord],
     setups: SetupTimes | None = None,
     proposals: dict[str, dict[str, Any]] | None = None,
+    short_of_filament: dict[str, list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     """Render the schedule for the page: what we did, and separately what the printer says.
 
@@ -758,5 +837,6 @@ def payload_for(
         verdict = verdicts.get(job.job_id)
         entry["printer_says"] = None if verdict is None else verdict.status
         entry["toolheads_proposal"] = (proposals or {}).get(job.job_id)
+        entry["filament_short"] = (short_of_filament or {}).get(job.job_id, [])
         rendered.append(entry)
     return rendered

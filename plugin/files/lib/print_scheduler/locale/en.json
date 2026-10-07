@@ -225,5 +225,7 @@
   "page.use-this-map": "Use this map",
   "page.map-is-right-start-now": "This map is right, start it now",
   "page.map-is-right": "This map is right",
-  "page.edit-to-choose-the-toolheads": "Edit it to choose the toolheads yourself, or cancel it."
+  "page.edit-to-choose-the-toolheads": "Edit it to choose the toolheads yourself, or cancel it.",
+  "page.filament-short": "T{toolhead} has about {left} g left, and this print needs about {needed} g from it.",
+  "page.filament-short-note": "If the printer refills or pauses for a new spool, it will do that; the scheduler does not."
 }

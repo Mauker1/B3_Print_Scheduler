@@ -5,6 +5,32 @@ SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Changelog
 
+## 0.6.1
+
+- **A map offered on a held row now says when its spool is short**, before you accept it. A job
+  waiting for its map to be confirmed, or held because a spool changed, offered the scheduler's
+  map without checking how much was left on it, so it could put a long print onto a nearly empty
+  spool with nothing on screen to say so.
+- **Confirming a map records the grams each slot needs**, so a job scheduled before 0.6.0 warns
+  about its spools from then on, like one scheduled today.
+
+## 0.6.0
+
+A warning when a spool has less left on it than a job needs.
+
+- **On the form and on the waiting row.** Where the printer can say how much is left, a slot whose
+  toolhead has less than the file needs says so: *T2 has about 32 g left, and this print needs
+  about 40 g from it.* Two slots on one toolhead are added together. It follows the toolhead you
+  pick, and the row follows the map the job will start on.
+- **A warning only.** Nothing is refused or held because of it. If the printer refills or pauses
+  for a new spool, that is what happens.
+- **No new dependency.** It reads Spoolman through Moonraker, and which spool is in which toolhead
+  from the tool macros' `spool_id`, the setup Mainsail and Fluidd describe, or from AFC's lanes. A
+  printer without them sees no warning and nothing else changes, and is never asked for what it
+  does not have.
+- Jobs scheduled before 0.6.0 did not record the grams each slot needs, so their rows never show
+  the warning.
+
 ## 0.5.1
 
 - **Saving empties the form.** After scheduling or editing a job, the file stayed chosen with its

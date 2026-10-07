@@ -225,5 +225,7 @@
   "page.use-this-map": "Usar este mapa",
   "page.map-is-right-start-now": "Este mapa está certo, começar agora",
   "page.map-is-right": "Este mapa está certo",
-  "page.edit-to-choose-the-toolheads": "Edite para escolher os cabeçotes você mesmo, ou cancele."
+  "page.edit-to-choose-the-toolheads": "Edite para escolher os cabeçotes você mesmo, ou cancele.",
+  "page.filament-short": "O T{toolhead} tem cerca de {left} g restantes, e esta impressão precisa de cerca de {needed} g dele.",
+  "page.filament-short-note": "Se a impressora reabastecer ou pausar para um carretel novo, ela fará isso; o agendador não."
 }

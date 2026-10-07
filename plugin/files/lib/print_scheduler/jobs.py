@@ -202,6 +202,10 @@ class Job:
     # was recorded and there was nothing to map, on a printer that does not report what is
     # loaded. The two are different on purpose: the first is a question, the second an answer.
     toolheads_seen: tuple[SeenToolhead, ...] | None = None
+    # The slicer's grams per slot, taken when the job was scheduled like the time estimate, so
+    # the waiting row can say whether a spool has enough left without reading the file again.
+    # Empty for a job scheduled before 0.6.0, which then simply says nothing about it.
+    slot_grams: tuple[tuple[int, float], ...] = ()
     attempts: tuple[Attempt, ...] = field(default_factory=tuple)
 
     @property
@@ -244,6 +248,7 @@ class Job:
             "toolheads_seen": None
             if self.toolheads_seen is None
             else [one.to_dict() for one in self.toolheads_seen],
+            "slot_grams": [[slot, grams] for slot, grams in self.slot_grams],
             "attempts": [{"at": attempt.at, "detail": attempt.detail} for attempt in self.attempts],
         }
 
@@ -277,6 +282,9 @@ def job_from_dict(payload: dict[str, Any]) -> Job:
         toolheads_seen=None
         if payload.get("toolheads_seen") is None
         else tuple(seen_toolhead_from_dict(one) for one in payload["toolheads_seen"]),
+        slot_grams=tuple(
+            (int(slot), float(grams)) for slot, grams in payload.get("slot_grams") or []
+        ),
         attempts=tuple(
             Attempt(at=float(entry["at"]), detail=str(entry["detail"]))
             for entry in payload.get("attempts", [])
