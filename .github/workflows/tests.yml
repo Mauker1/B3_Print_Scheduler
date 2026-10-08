@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: Copyright (C) 2026 Mauker and the Bespok3d contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+name: tests
+
+# The plugin's tests on every pull request and every branch push, so a failing test blocks a merge
+# rather than a release. It runs plugin/tests/run.sh and not scripts/check.sh, because the gate needs
+# the private lib_bespok3d submodule and this repo's own token cannot read it. It holds no secrets and
+# asks for nothing but read access: in a public repository a pull request from a fork runs this, and
+# it must not be able to reach any secret. No paths filter: the ruleset on main requires the check
+# named tests, and a pull request it never reports on would wait for ever.
+on:
+  pull_request:
+  push:
+    branches:
+      - '**'
+
+permissions:
+  contents: read
+
+jobs:
+  # This id is the status check's name, the string the ruleset requires. Renaming it means updating
+  # the ruleset in the same change.
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # No submodules, for the same reason as release.yml.
+
+      # The printer runs 3.11, and run.sh refuses any other interpreter.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run the tests
+        run: sh plugin/tests/run.sh

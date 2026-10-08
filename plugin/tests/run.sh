@@ -1,11 +1,12 @@
 #!/bin/sh
 # SPDX-FileCopyrightText: Copyright (C) 2026 Mauker and the Bespok3d contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
-# The plugin's tests, as the release pipeline runs them. b3-builder calls `sh <plugin>/tests/run.sh`
-# from the repository root once every package is packed, and a non-zero exit aborts the run before
-# a single release is cut. That is the only caller this file is written for: on a development
-# machine run scripts/check.sh instead, which runs these same tests along with the linting, the
-# type checking and the guards.
+# The plugin's tests, as CI runs them. It has two callers. b3-builder calls
+# `sh <plugin>/tests/run.sh` from the repository root once every package is packed, and a non-zero
+# exit aborts the run before a single release is cut. .github/workflows/tests.yml calls it on every
+# pull request and branch push, and a pull request cannot merge until that run passes. On a
+# development machine run scripts/check.sh instead, which runs these same tests along with the
+# linting, the type checking and the guards.
 #
 # It builds a throwaway virtualenv rather than reusing the shared tool venv that the gate
 # provisions, because that venv lives inside the lib_bespok3d submodule and the submodule is a
