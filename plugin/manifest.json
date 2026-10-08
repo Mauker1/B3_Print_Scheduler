@@ -1,0 +1,128 @@
+{
+  "name": "print-scheduler",
+  "title": "Print Scheduler",
+  "version": "0.6.1",
+  "description": "Pick a sliced file that is already on the printer, pick when it should start, and the printer starts it for you at that time.\n\nThe scheduler refuses far more often than it starts. It will not start a job on a printer that is not idle, it will not start a job whose time has already passed, and it records a reason for every job it did not start. It cannot see the bed, so the person scheduling a job is the one promising the bed will be clear.",
+  "tagline": "Start a print at a time you choose.",
+  "category": "printing",
+  "channel": "experiment",
+  "printer_specific": false,
+  "min_daemon_version": "0.14.0",
+  "changelog": "doc/CHANGELOG.md",
+  "source": "https://github.com/Mauker1/B3_Print_Scheduler",
+  "publisher": "PLACEHOLDER",
+  "author": "Mauker",
+  "license": "https://github.com/Mauker1/B3_Print_Scheduler/blob/main/LICENSE",
+  "provides": [],
+  "require": [],
+  "conflicts": [],
+  "requires": {
+    "capabilities": [
+      "klipper-generic"
+    ],
+    "variables": [
+      {
+        "name": "START_TOLERANCE_MINUTES",
+        "description": "How many minutes late a job may still start. It is a retry budget for a printer that is briefly unreachable, not permission to start late.",
+        "required": true
+      },
+      {
+        "name": "SETTLED_JOBS_KEPT",
+        "description": "How many finished and cancelled jobs to show in the list. Older ones are dropped from the list automatically. Nothing scheduled is ever dropped.",
+        "required": false
+      },
+      {
+        "name": "LANGUAGE",
+        "description": "Which language this plugin's page starts in for everybody who has not chosen their own.",
+        "required": false
+      }
+    ]
+  },
+  "config": [
+    {
+      "key": "START_TOLERANCE_MINUTES",
+      "label": "Minutes a job may start late",
+      "type": "number",
+      "placeholder": "5",
+      "default": 5,
+      "hint": "A job noticed within this many minutes of its time still starts. Past it, the job is cancelled and the reason is recorded. A printer that is busy is never waited for, whatever this is set to. Zero tolerates no lateness at all, which cancels nearly every job, because the scheduler looks every 20 seconds rather than continuously.",
+      "required": true,
+      "userEditable": true
+    },
+    {
+      "key": "SETTLED_JOBS_KEPT",
+      "label": "Finished jobs to keep",
+      "type": "number",
+      "placeholder": "25",
+      "default": 25,
+      "hint": "The list of settled jobs is trimmed to this many, newest first, so it does not grow forever. Jobs that have not run yet are never dropped. This only changes how many rows you see: the scheduler keeps enough history of its own to tell a levelled print's setup time from an unlevelled one, whatever this is set to.",
+      "required": false,
+      "userEditable": true
+    },
+    {
+      "key": "LANGUAGE",
+      "label": "Language",
+      "type": "select",
+      "options": [
+        "en",
+        "pt-BR"
+      ],
+      "default": "en",
+      "hint": "The language this plugin's own page starts in: en is English, pt-BR is Brazilian Portuguese. Anyone reading the page can choose a different one for their own browser without changing this. The printer's own words pass through untranslated, and the log is always English.",
+      "required": false,
+      "userEditable": true
+    }
+  ],
+  "permissions": [
+    "web-location",
+    "managed-service",
+    "restart"
+  ],
+  "install": {
+    "data": [
+      "print-scheduler"
+    ],
+    "place": [
+      {
+        "class": "web-location",
+        "src": "files/etc/nginx/locations/print-scheduler.conf"
+      }
+    ],
+    "service": [
+      {
+        "name": "print-scheduler",
+        "command": "/usr/bin/python3",
+        "args": [
+          "-u",
+          "$BESPOK3D_PLUGINS/print-scheduler/files/bin/print-scheduler.py",
+          "--bind",
+          "127.0.0.1",
+          "--port",
+          "8095",
+          "--moonraker",
+          "http://127.0.0.1:7125",
+          "--state",
+          "$BESPOK3D/var/lib/print-scheduler/jobs.json",
+          "--user-vars",
+          "$BESPOK3D_PLUGINS/print-scheduler/user_vars.json"
+        ],
+        "autostart": true,
+        "ports": [
+          8095
+        ]
+      }
+    ],
+    "restart": [
+      "web"
+    ]
+  },
+  "endpoints": [
+    {
+      "label": "Print scheduler",
+      "path": "/print-scheduler/"
+    }
+  ],
+  "conflict_resolutions": [],
+  "files": [],
+  "attributions": "# Attributions - print-scheduler\n\n**Plugin author:** Mauker\n\nThis plugin ships no third-party code. Its documentation includes one third-party icon, noted below.\n\nThe idea, and the two warnings it is built to answer, come from jneilliii's OctoPrint-PrintScheduler\n(https://github.com/jneilliii/OctoPrint-PrintScheduler, AGPL-3.0). No code from it is used here: that\nplugin targets OctoPrint and this one targets Klipper through Moonraker.\n\nThe optional Mainsail sidebar snippet in `doc/README.md` carries an icon path from Material Design Icons (https://pictogrammers.com/library/mdi/, Apache-2.0), the set Mainsail itself uses. It is documentation for the user's own config file rather than anything this plugin installs.\n\nThe nginx authentication subrequest follows the pattern established by the Bespok3d plugin\n`u1-remote-screen`, whose own location file credits paxx12's Extended Firmware overlay\n`61-app-remote-screen` (GPL-3.0). The block here is written against Moonraker's documented\n`/access/user` endpoint rather than copied.\n"
+}

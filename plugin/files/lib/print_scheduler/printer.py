@@ -1,0 +1,183 @@
+# SPDX-FileCopyrightText: Copyright (C) 2026 Mauker and the Bespok3d contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""What the scheduler needs to know about the printer, and the seam for standing in for one.
+
+Nothing in this module talks to a network. The decision engine depends on `Printer` and on
+`PrinterSnapshot`, so every outcome in the table can be described as data in a test and none of the
+tests need a printer, a socket or a clock.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+KLIPPER_READY = "ready"
+
+# Klipper is on its way up and will very likely be ready in a few seconds, so a job that
+# meets this waits. Its other non-ready states, shutdown and error, are not transient and a
+# job that waits through them only cancels later with the wrong reason recorded.
+KLIPPER_STARTING_STATES = frozenset({"startup"})
+
+# A print is under way. The printer is occupied for hours, so a scheduled job that meets this is
+# cancelled rather than waited for.
+RUNNING_PRINT_STATES = frozenset({"printing", "paused"})
+
+# A print has ended and nobody has dismissed it on the printer's screen. Clearing the bed and
+# dismissing the job are the same habit, so this is the closest thing to a bed sensor we have, and
+# the interface is honest about it being a proxy.
+UNCLEARED_BED_STATES = frozenset({"complete", "cancelled"})
+
+PRINT_STATE_ERROR = "error"
+
+# A gcode file numbers its filaments by slicer slot, and the printer numbers its hardware by
+# toolhead. They are not the same thing, and assuming they were printed PLA into a toolhead
+# loaded with ASA. The map between them is chosen at start time, by whoever starts the print.
+LOGICAL_SLOTS = 32
+PHYSICAL_TOOLHEADS = 4
+
+# print_stats states that mean the file we asked for is running now or just finished. A 26
+# second print can be over before the next tick, so `complete` is confirmation that the start
+# took, not evidence that it did not. This is only ever consulted for a job we started moments
+# ago, and only after the printer reported standby at the time we started it, so a stale
+# `complete` from an older print cannot be mistaken for ours.
+STATES_MEANING_OUR_PRINT_RAN = frozenset({"printing", "paused", "complete"})
+
+
+class StartRefusedError(Exception):
+    """The printer refused to start the print. The message is the printer's own."""
+
+
+class DismissRefusedError(Exception):
+    """The printer refused to clear a finished print. The message is the printer's own."""
+
+
+@dataclass(frozen=True)
+class LoadedFilament:
+    """What is actually in one of the printer's toolheads right now."""
+
+    index: int
+    filament_type: str
+    colour: str
+    present: bool
+
+
+@dataclass(frozen=True)
+class SpoolLeft:
+    """How much filament is left on the spool in one toolhead, by the reckoning of Spoolman.
+
+    Spoolman's number, not ours and not the printer's: it counts what it has been told was used,
+    so it is as good as whatever reports usage to it. That is why it only ever feeds a warning.
+    """
+
+    toolhead: int
+    spool_id: int
+    grams: float
+
+
+@dataclass(frozen=True)
+class PrintRecord:
+    """One entry of the printer's own job history.
+
+    `status` is passed through as the printer words it, never translated into a vocabulary of
+    ours. What became of a print is the printer's claim to make.
+    """
+
+    job_id: str
+    filename: str
+    start_time: float
+    status: str
+    # Zero while a print is still running.
+    end_time: float = 0.0
+    # Wall clock from start to end, and the part of it that was actually extruding. The
+    # difference is the printer's own start routine, which is minutes on this machine and is
+    # missing from every slicer estimate.
+    total_duration: float = 0.0
+    print_duration: float = 0.0
+
+
+@dataclass(frozen=True)
+class PrinterSnapshot:
+    """Everything the decision engine looks at, read in one pass."""
+
+    reachable: bool
+    klipper_state: str = ""
+    klipper_message: str = ""
+    print_state: str = ""
+    printing_filename: str = ""
+    # idle_timeout reports Printing for any gcode activity, including a calibration started by
+    # hand, while print_stats only knows about print jobs. Both are needed to answer "is the
+    # printer busy", and they mean different things: see the rules in runner.py.
+    other_gcode_running: bool = False
+
+
+class Printer(Protocol):
+    """The printer, as much of it as the scheduler needs."""
+
+    def snapshot(self) -> PrinterSnapshot:
+        """Read the printer's current state, without raising if it cannot be reached."""
+        ...
+
+    def gcode_filenames(self) -> frozenset[str]:
+        """Every gcode file the printer can currently start."""
+        ...
+
+    def file_listing(self) -> dict[str, float]:
+        """Every gcode file and when it was last modified, reaching into subdirectories."""
+        ...
+
+    def described_files(self) -> dict[str, dict[str, Any]]:
+        """What the printer knows about the files in the gcode root, in one read."""
+        ...
+
+    def thumbnail(self, filename: str) -> tuple[bytes, str] | None:
+        """The largest thumbnail for one file, with its content type, or None."""
+        ...
+
+    def recent_prints(self) -> tuple[PrintRecord, ...]:
+        """The printer's own recent job history, newest first."""
+        ...
+
+    def file_metadata(self, filename: str) -> dict[str, Any]:
+        """What the slicer wrote into one gcode file, as the printer reports it."""
+        ...
+
+    def loaded_filaments(self) -> tuple[LoadedFilament, ...]:
+        """What is in each toolhead. Empty on a printer that does not track it."""
+        ...
+
+    def filament_left(self) -> tuple[SpoolLeft, ...]:
+        """How much is left on the spool in each toolhead, where the printer can say.
+
+        Empty, never raising, on a printer that cannot: no Spoolman, or nothing that says which
+        spool is in which toolhead.
+        """
+        ...
+
+    def supports_print_preferences(self) -> bool:
+        """Whether this printer lets a job carry its own bed mesh and timelapse choices."""
+        ...
+
+    def start_print(
+        self,
+        filename: str,
+        level_bed: bool | None,
+        record_timelapse: bool | None,
+        assignments: tuple[tuple[int, int], ...],
+    ) -> None:
+        """Start the print.
+
+        Raises StartRefusedError carrying the printer's own message if it will not.
+        """
+        ...
+
+    def dismiss_finished_print(self) -> None:
+        """Clear a print that has ended, so the printer reads as idle again.
+
+        This does no checking of its own, deliberately. The command behind it stops a print
+        that is running, so whether it may be sent is decided by the one caller that holds
+        the schedule's lock, immediately before sending it, and nowhere else.
+
+        Raises DismissRefusedError carrying the printer's own message if it will not.
+        """
+        ...
