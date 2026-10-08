@@ -130,8 +130,11 @@ git push -u origin <your-branch>
 gh pr create --base dev --fill      # or open the link that git push prints
 ```
 
-The pull request targets `dev`. CI runs this same `scripts/check.sh` on it, so a red gate is not
-reviewable and blocks the release.
+The pull request targets `dev`. CI runs the plugin's tests on it as the `tests` check
+(`.github/workflows/tests.yml`, which runs `plugin/tests/run.sh`), and a pull request cannot merge
+until that check is green. CI cannot run the rest of the gate, because the gate needs the private
+`lib_bespok3d` submodule and the repo's own token cannot read it. A green `tests` check is therefore
+not a green gate: run `scripts/check.sh` yourself before you push.
 
 ## Tests
 
@@ -239,11 +242,21 @@ one is installed.
 
 ## Release
 
-Bump `version` in `plugin/manifest.json` and push a tag naming this plugin and that exact number:
+Work reaches `main` in two steps:
+
+1. Each change is its own branch off `dev`, merged into `dev` by a pull request.
+2. When `dev` holds the next version, a pull request from `dev` into `main` brings it there.
+   `plugin/manifest.json` and `plugin/doc/CHANGELOG.md` must already agree on that version.
+   Merge it with a merge commit, not a squash or a rebase, so the commits on `dev`, and any tag
+   already on one of them, stay reachable from `main`.
+
+Then tag the merge on `main` with this plugin's name and that exact number, and push the tag:
 
 ```sh
+git checkout main
+git pull
 git tag plugin-print-scheduler-v<version>
-git push origin <branch> --tags
+git push origin plugin-print-scheduler-v<version>
 ```
 
 A push to a branch publishes nothing. CI runs the `b3-builder` Action, which packs and signs the `.b3`,
